@@ -1,1 +1,9 @@
 /target
+/dist
+.DS_Store
+.idea/
+
+# Claude Code files are never tracked
+CLAUDE.md
+CLAUDE.local.md
+.claude/

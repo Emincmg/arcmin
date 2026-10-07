@@ -71,7 +71,8 @@ impl EditorState {
     /// A new branch at `pos` whose `if` leads to a fresh element to its right.
     pub fn new_branch_at(&mut self, pos: (f32, f32)) -> BranchRef {
         let target = model::add_element(&mut self.project, &self.board);
-        self.layout.set(target.as_str(), (pos.0 + SPAWN_GAP_X, pos.1));
+        self.layout
+            .set(target.as_str(), (pos.0 + SPAWN_GAP_X, pos.1));
         let branch = logic::add_branch(&mut self.project, &self.board, &target);
         self.layout.set(branch.as_str(), pos);
         self.select_branch(branch.clone());
@@ -82,7 +83,10 @@ impl EditorState {
     /// A new element to the right of `from`, connected to it.
     pub fn add_connected_element(&mut self, from: &ElementRef) {
         let (x, y) = self.layout.get_or_insert(from.as_str(), (40.0, 40.0));
-        let (w, _) = self.layout.size(from.as_str()).unwrap_or((super::NODE_W, super::NODE_H));
+        let (w, _) = self
+            .layout
+            .size(from.as_str())
+            .unwrap_or((super::NODE_W, super::NODE_H));
         let id = model::add_element(&mut self.project, &self.board);
         self.layout.set(id.as_str(), (x + w + 80.0, y));
         let conn = model::add_connection(&mut self.project, &self.board, from, &id);
@@ -119,7 +123,8 @@ impl EditorState {
         let (bx, by) = self.layout.get_or_insert(branch.as_str(), (40.0, 40.0));
         let rows = logic::branch_conditions(&self.project, branch).len() as f32;
         let target = model::add_element(&mut self.project, &self.board);
-        self.layout.set(target.as_str(), (bx + SPAWN_GAP_X, by + rows * 150.0));
+        self.layout
+            .set(target.as_str(), (bx + SPAWN_GAP_X, by + rows * 150.0));
         if logic::add_condition(&mut self.project, &self.board, branch, kind, &target).is_none() {
             // Refused (e.g. a second `else`): undo the placeholder element.
             model::delete_element(&mut self.project, &self.board, &target);
@@ -145,7 +150,9 @@ impl EditorState {
             return;
         };
         let (tx, ty) = self.layout.get_or_insert(to.as_str(), (40.0, 40.0));
-        if let Some(branch) = logic::insert_branch_on_connection(&mut self.project, &self.board, conn) {
+        if let Some(branch) =
+            logic::insert_branch_on_connection(&mut self.project, &self.board, conn)
+        {
             // Sit just left of where the old target was; the user can move it.
             self.layout.set(branch.as_str(), (tx - 250.0, ty));
             self.select_branch(branch);

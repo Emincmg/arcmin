@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use arcweave_rust::project::{BranchRef, CondRef, ElementRef, SourceRef, TargetRef, Board};
+use arcweave_rust::project::{Board, BranchRef, CondRef, ElementRef, SourceRef, TargetRef};
 use eframe::egui;
 
 use super::logic::{self, CondKind};
@@ -32,7 +32,9 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
 
     let (element_ids, branch_ids): (Vec<ElementRef>, Vec<BranchRef>) =
         match state.project.boards.get(&state.board) {
-            Some(Board::Node { elements, branches, .. }) => (elements.clone(), branches.clone()),
+            Some(Board::Node {
+                elements, branches, ..
+            }) => (elements.clone(), branches.clone()),
             _ => (vec![], vec![]),
         };
 
@@ -58,7 +60,8 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
         let conds = logic::branch_conditions(&state.project, id);
         let pos = state.layout.get_or_insert(id.as_str(), (40.0, 40.0));
         let height = BRANCH_HEADER + conds.len() as f32 * BRANCH_ROW + 6.0;
-        let rect = egui::Rect::from_min_size(to_screen(state, pos), egui::vec2(BRANCH_W, height) * z);
+        let rect =
+            egui::Rect::from_min_size(to_screen(state, pos), egui::vec2(BRANCH_W, height) * z);
         for (i, cond) in conds.iter().enumerate() {
             let y = rect.min.y + (BRANCH_HEADER + (i as f32 + 0.5) * BRANCH_ROW) * z;
             cond_handles.insert(cond.id.clone(), egui::pos2(rect.right(), y));
@@ -69,7 +72,12 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
 
     let pointer_over_node = bg_response
         .interact_pointer_pos()
-        .map(|p| rects.values().chain(branch_rects.values()).any(|r| r.contains(p)))
+        .map(|p| {
+            rects
+                .values()
+                .chain(branch_rects.values())
+                .any(|r| r.contains(p))
+        })
         .unwrap_or(false);
 
     if bg_response.dragged() && !pointer_over_node {
@@ -79,12 +87,12 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
         state.clear_selection();
     }
 
-    if let Some(hover) = ctx.input(|i| i.pointer.hover_pos()) {
-        if canvas_rect.contains(hover) {
-            let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-            if scroll != 0.0 {
-                state.zoom = (state.zoom * (1.0 + scroll * 0.001)).clamp(0.3, 2.5);
-            }
+    if let Some(hover) = ctx.input(|i| i.pointer.hover_pos())
+        && canvas_rect.contains(hover)
+    {
+        let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
+        if scroll != 0.0 {
+            state.zoom = (state.zoom * (1.0 + scroll * 0.001)).clamp(0.3, 2.5);
         }
     }
 
@@ -119,33 +127,37 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
             } else {
                 egui::Color32::LIGHT_BLUE
             };
-            painter.line_segment([p0, p1], egui::Stroke::new(if selected { 3.0 } else { 2.0 }, color));
+            painter.line_segment(
+                [p0, p1],
+                egui::Stroke::new(if selected { 3.0 } else { 2.0 }, color),
+            );
             segments.push((conn_ref.clone(), p0, p1));
         }
     }
-    if bg_response.clicked() {
-        if let Some(pos) = bg_response.interact_pointer_pos() {
-            if let Some((conn_ref, _, _)) = segments
-                .iter()
-                .find(|(_, a, b)| dist_to_segment(pos, *a, *b) < 6.0)
-            {
-                state.select_connection(conn_ref.clone());
-            }
-        }
+    if bg_response.clicked()
+        && let Some(pos) = bg_response.interact_pointer_pos()
+        && let Some((conn_ref, _, _)) = segments
+            .iter()
+            .find(|(_, a, b)| dist_to_segment(pos, *a, *b) < 6.0)
+    {
+        state.select_connection(conn_ref.clone());
     }
     state.canvas_segments = segments;
 
     // Rubber band while dragging a new connection.
     let hover_pos = ctx.input(|i| i.pointer.hover_pos());
-    if let (Some(from), Some(pos)) = (&state.connecting_from, hover_pos) {
-        if let Some(fr) = rects.get(from) {
-            painter.line_segment([fr.right_center(), pos], egui::Stroke::new(2.0, egui::Color32::YELLOW));
-        }
+    if let (Some(from), Some(pos)) = (&state.connecting_from, hover_pos)
+        && let Some(fr) = rects.get(from)
+    {
+        painter.line_segment(
+            [fr.right_center(), pos],
+            egui::Stroke::new(2.0, egui::Color32::YELLOW),
+        );
     }
-    if let (Some(cond), Some(pos)) = (&state.connecting_cond, hover_pos) {
-        if let Some(handle) = cond_handles.get(cond) {
-            painter.line_segment([*handle, pos], egui::Stroke::new(2.0, AMBER));
-        }
+    if let (Some(cond), Some(pos)) = (&state.connecting_cond, hover_pos)
+        && let Some(handle) = cond_handles.get(cond)
+    {
+        painter.line_segment([*handle, pos], egui::Stroke::new(2.0, AMBER));
     }
 
     let mut drop_target: Option<Drop> = None;
@@ -173,7 +185,13 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
         } else {
             egui::Color32::GRAY
         };
-        painter.rect(rect, 6.0, fill, egui::Stroke::new(2.0, stroke_color), egui::StrokeKind::Inside);
+        painter.rect(
+            rect,
+            6.0,
+            fill,
+            egui::Stroke::new(2.0, stroke_color),
+            egui::StrokeKind::Inside,
+        );
 
         let text_painter = painter.with_clip_rect(rect.shrink(2.0));
         let wrap_width = (rect.width() - 16.0 * z).max(1.0);
@@ -195,10 +213,16 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
             let tex_aspect = tex_size.x / tex_size.y;
             let uv = if tex_aspect > band_aspect {
                 let w = band_aspect / tex_aspect;
-                egui::Rect::from_min_max(egui::pos2((1.0 - w) / 2.0, 0.0), egui::pos2((1.0 + w) / 2.0, 1.0))
+                egui::Rect::from_min_max(
+                    egui::pos2((1.0 - w) / 2.0, 0.0),
+                    egui::pos2((1.0 + w) / 2.0, 1.0),
+                )
             } else {
                 let h = tex_aspect / band_aspect;
-                egui::Rect::from_min_max(egui::pos2(0.0, (1.0 - h) / 2.0), egui::pos2(1.0, (1.0 + h) / 2.0))
+                egui::Rect::from_min_max(
+                    egui::pos2(0.0, (1.0 - h) / 2.0),
+                    egui::pos2(1.0, (1.0 + h) / 2.0),
+                )
             };
             text_painter.image(tex.id(), band, uv, egui::Color32::WHITE);
             text_top = band.height() + 8.0 * z;
@@ -240,8 +264,15 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
         super::context_menu::element_menu(&node_response, state, id);
 
         // Bottom-right grip: drag to resize this node.
-        let grip = egui::Rect::from_min_size(rect.right_bottom() - egui::vec2(16.0, 16.0), egui::vec2(16.0, 16.0));
-        let grip_response = ui.interact(grip, ui.id().with(("arcmin_resize", id.as_str())), egui::Sense::drag());
+        let grip = egui::Rect::from_min_size(
+            rect.right_bottom() - egui::vec2(16.0, 16.0),
+            egui::vec2(16.0, 16.0),
+        );
+        let grip_response = ui.interact(
+            grip,
+            ui.id().with(("arcmin_resize", id.as_str())),
+            egui::Sense::drag(),
+        );
         let grip_color = if grip_response.hovered() || grip_response.dragged() {
             egui::Color32::WHITE
         } else {
@@ -275,7 +306,11 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
         let handle_center = rect.right_center();
         painter.circle_filled(handle_center, 6.0, egui::Color32::LIGHT_GREEN);
         let handle_rect = egui::Rect::from_center_size(handle_center, egui::vec2(16.0, 16.0));
-        let handle_response = ui.interact(handle_rect, ui.id().with(("arcmin_handle", id.as_str())), egui::Sense::drag());
+        let handle_response = ui.interact(
+            handle_rect,
+            ui.id().with(("arcmin_handle", id.as_str())),
+            egui::Sense::drag(),
+        );
         if handle_response.drag_started() {
             state.connecting_from = Some(id.clone());
         }
@@ -298,11 +333,22 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
         } else {
             egui::Color32::from_rgb(54, 47, 34)
         };
-        let stroke = if is_selected { egui::Color32::WHITE } else { AMBER };
-        painter.rect(rect, 8.0 * z.min(1.0), fill, egui::Stroke::new(2.0, stroke), egui::StrokeKind::Inside);
+        let stroke = if is_selected {
+            egui::Color32::WHITE
+        } else {
+            AMBER
+        };
+        painter.rect(
+            rect,
+            8.0 * z.min(1.0),
+            fill,
+            egui::Stroke::new(2.0, stroke),
+            egui::StrokeKind::Inside,
+        );
 
         let clip = painter.with_clip_rect(rect.shrink(2.0));
-        let header = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), BRANCH_HEADER * z));
+        let header =
+            egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), BRANCH_HEADER * z));
         clip.rect_filled(header.shrink(2.0), 6.0, egui::Color32::from_rgb(96, 78, 40));
         clip.text(
             header.left_center() + egui::vec2(10.0 * z, 0.0),
@@ -335,13 +381,20 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
             if cond.kind != CondKind::Else {
                 let script = cond.script.clone().unwrap_or_default();
                 let broken = logic::validate_condition(&script).is_some();
-                let shown = script.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
+                let shown = script
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&amp;", "&");
                 clip.text(
                     egui::pos2(rect.min.x + 62.0 * z, row_y),
                     egui::Align2::LEFT_CENTER,
                     shown,
                     egui::FontId::proportional(12.0 * z),
-                    if broken { egui::Color32::from_rgb(240, 110, 110) } else { egui::Color32::LIGHT_GRAY },
+                    if broken {
+                        egui::Color32::from_rgb(240, 110, 110)
+                    } else {
+                        egui::Color32::LIGHT_GRAY
+                    },
                 );
             }
 
@@ -396,7 +449,9 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
 
     // ---- keyboard ------------------------------------------------------------
     let editing_text = ctx.memory(|m| m.focused().is_some());
-    if !editing_text && ui.input(|i| i.key_pressed(egui::Key::Delete)) {
+    if !editing_text
+        && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+    {
         state.delete_selection();
     }
 }

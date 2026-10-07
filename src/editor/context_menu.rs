@@ -3,9 +3,9 @@
 use arcweave_rust::project::{BranchRef, ElementRef, SourceRef, TargetRef};
 use eframe::egui;
 
+use super::EditorState;
 use super::canvas::connection_at;
 use super::logic::CondKind;
-use super::EditorState;
 
 pub fn element_menu(response: &egui::Response, state: &mut EditorState, id: &ElementRef) {
     response.context_menu(|ui| {
@@ -16,7 +16,10 @@ pub fn element_menu(response: &egui::Response, state: &mut EditorState, id: &Ele
         if ui.button("Add Branch After").clicked() {
             // A branch to the right of this element, wired in, with its `if` leading on.
             let (x, y) = state.layout.get_or_insert(id.as_str(), (40.0, 40.0));
-            let (w, _) = state.layout.size(id.as_str()).unwrap_or((super::NODE_W, super::NODE_H));
+            let (w, _) = state
+                .layout
+                .size(id.as_str())
+                .unwrap_or((super::NODE_W, super::NODE_H));
             let branch = state.new_branch_at((x + w + 60.0, y));
             state.connect_to_branch(id, &branch);
             state.select_branch(branch);
@@ -70,13 +73,13 @@ pub fn branch_menu(response: &egui::Response, state: &mut EditorState, id: &Bran
 
 /// The menu for empty canvas space, or for a connection when the click landed on one.
 pub fn canvas_menu(response: &egui::Response, state: &mut EditorState, canvas_rect: egui::Rect) {
-    if response.secondary_clicked() {
-        if let Some(pos) = response.interact_pointer_pos() {
-            state.context_world = state.screen_to_world(pos, canvas_rect.min);
-            state.context_conn = connection_at(&state.canvas_segments, pos, 8.0);
-            if let Some(conn) = state.context_conn.clone() {
-                state.select_connection(conn);
-            }
+    if response.secondary_clicked()
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        state.context_world = state.screen_to_world(pos, canvas_rect.min);
+        state.context_conn = connection_at(&state.canvas_segments, pos, 8.0);
+        if let Some(conn) = state.context_conn.clone() {
+            state.select_connection(conn);
         }
     }
 
@@ -94,7 +97,10 @@ pub fn canvas_menu(response: &egui::Response, state: &mut EditorState, canvas_re
                 })
                 .unwrap_or((false, false));
             if ui
-                .add_enabled(from_element && to_element, egui::Button::new("Insert Branch"))
+                .add_enabled(
+                    from_element && to_element,
+                    egui::Button::new("Insert Branch"),
+                )
                 .on_disabled_hover_text("Only plain element-to-element connections")
                 .clicked()
             {

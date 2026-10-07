@@ -32,6 +32,15 @@ const NODE_MAX: (f32, f32) = (700.0, 600.0);
 /// How long unsaved changes may sit before they are written to disk in the background.
 const AUTOSAVE_EVERY: Duration = Duration::from_secs(5 * 60);
 
+/// "Cmd" on macOS, "Ctrl" elsewhere (egui maps `Modifiers::COMMAND` the same way).
+fn modifier_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Cmd"
+    } else {
+        "Ctrl"
+    }
+}
+
 pub enum EditorExit {
     ToTitle,
     Play,
@@ -68,14 +77,21 @@ pub struct EditorState {
 }
 
 impl EditorState {
-    pub fn open(project: Project, project_path: PathBuf) -> Self {
+    /// Opens a project in the editor. Fails only if it has no board to show.
+    pub fn open(project: Project, project_path: PathBuf) -> Result<Self, String> {
         let board = model::find_main_board(&project)
             .or_else(|| project.boards.keys().next().cloned())
-            .expect("project has no boards");
+            .ok_or_else(|| "This project has no boards, so there is nothing to edit.".to_owned())?;
         let covers = covers::load(&project_path);
         let assets = AssetIndex::build(&project_path);
         let mut layout = LayoutStore::load(&project_path);
-        if let Some(Board::Node { elements, branches, connections, .. }) = project.boards.get(&board) {
+        if let Some(Board::Node {
+            elements,
+            branches,
+            connections,
+            ..
+        }) = project.boards.get(&board)
+        {
             let mut ids: Vec<String> = elements.iter().map(|e| e.as_str().to_owned()).collect();
             ids.extend(branches.iter().map(|b| b.as_str().to_owned()));
             let edges: Vec<(String, String)> = connections
@@ -108,7 +124,7 @@ impl EditorState {
             covers: covers.clone(),
             layout: layout.clone(),
         });
-        Self {
+        Ok(Self {
             project,
             project_path,
             layout,
@@ -131,7 +147,7 @@ impl EditorState {
             textures: HashMap::new(),
             notice: None,
             history,
-        }
+        })
     }
 
     pub fn save(&mut self) {
@@ -146,7 +162,10 @@ impl EditorState {
         let problems = logic::check_integrity(&self.project);
         if let Some(first) = problems.first() {
             self.notice = Some((
-                format!("Saved, but the project has {} structural problem(s): {first}", problems.len()),
+                format!(
+                    "Saved, but the project has {} structural problem(s): {first}",
+                    problems.len()
+                ),
                 true,
             ));
         }
@@ -214,14 +233,17 @@ impl EditorState {
 pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) -> Option<EditorExit> {
     let mut exit = None;
 
-    // Cmd+Z / Cmd+Shift+Z (or Cmd+Y). While a text field has focus, egui's own
+    // Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z (or +Y). While a text field has focus, egui's own
     // text undo handles the keys instead.
     if !ctx.memory(|m| m.focused().is_some()) {
         let redo = ctx.input_mut(|i| {
-            i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z)
-                || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Y)
+            i.consume_key(
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                egui::Key::Z,
+            ) || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Y)
         });
-        let undo = !redo && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z));
+        let undo =
+            !redo && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z));
         if redo {
             state.redo();
         } else if undo {
@@ -237,7 +259,10 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) -> 
 
     ui.horizontal(|ui| {
         ui.heading(&state.project.name);
-        ui.label(format!("· {}", model::board_name(&state.project, &state.board)));
+        ui.label(format!(
+            "· {}",
+            model::board_name(&state.project, &state.board)
+        ));
         ui.separator();
         if ui.add(theme::primary("+ Element")).clicked() {
             let id = model::add_element(&mut state.project, &state.board);
@@ -259,14 +284,14 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) -> 
         }
         if ui
             .add_enabled(state.history.can_undo(), egui::Button::new("Undo"))
-            .on_hover_text("Cmd+Z")
+            .on_hover_text(format!("{}+Z", modifier_name()))
             .clicked()
         {
             state.undo();
         }
         if ui
             .add_enabled(state.history.can_redo(), egui::Button::new("Redo"))
-            .on_hover_text("Cmd+Shift+Z")
+            .on_hover_text(format!("{}+Shift+Z", modifier_name()))
             .clicked()
         {
             state.redo();
@@ -326,7 +351,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("arcmin-undo-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let (project, _, _) = model::new_project("Undo test");
-        EditorState::open(project, dir.join("project_settings.json"))
+        EditorState::open(project, dir.join("project_settings.json")).unwrap()
     }
 
     fn element_count(s: &EditorState) -> usize {
@@ -346,13 +371,14 @@ mod tests {
         s.commit_history();
         assert_eq!(element_count(&s), start_count + 1);
 
-        s.covers.insert(id.as_str().to_owned(), "asset-1".to_owned());
+        s.covers
+            .insert(id.as_str().to_owned(), "asset-1".to_owned());
         s.action();
         s.commit_history();
 
         // Undo the cover, then the element.
         s.undo();
-        assert!(s.covers.get(id.as_str()).is_none(), "cover undone");
+        assert!(!s.covers.contains_key(id.as_str()), "cover undone");
         assert_eq!(element_count(&s), start_count + 1, "element still there");
 
         s.undo();
@@ -364,7 +390,10 @@ mod tests {
         s.redo();
         assert_eq!(element_count(&s), start_count + 1);
         s.redo();
-        assert_eq!(s.covers.get(id.as_str()).map(String::as_str), Some("asset-1"));
+        assert_eq!(
+            s.covers.get(id.as_str()).map(String::as_str),
+            Some("asset-1")
+        );
         assert!(!s.history.can_redo());
     }
 
@@ -380,11 +409,181 @@ mod tests {
             s.changed(format!("move:{}", id.as_str()));
             s.commit_history();
         }
-        assert_eq!(s.layout.get_or_insert(id.as_str(), (0.0, 0.0)).0, before.0 + 50.0);
+        assert_eq!(
+            s.layout.get_or_insert(id.as_str(), (0.0, 0.0)).0,
+            before.0 + 50.0
+        );
 
         s.undo();
         assert_eq!(s.layout.get_or_insert(id.as_str(), (0.0, 0.0)), before);
         assert!(!s.history.can_undo(), "the whole drag was one step");
+    }
+
+    // ---- real frames, run headlessly ------------------------------------------------
+
+    /// Runs one UI frame of the editor with the given input events.
+    fn frame(state: &mut EditorState, events: Vec<egui::Event>) {
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |ui| {
+            let ctx = ui.ctx().clone();
+            show(ui, &ctx, state);
+        });
+        output.drop_without_applying_deltas();
+    }
+
+    fn key(key: egui::Key, modifiers: egui::Modifiers) -> Vec<egui::Event> {
+        vec![egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }]
+    }
+
+    /// Cmd on macOS, Ctrl elsewhere, the way a backend would report it.
+    fn command() -> egui::Modifiers {
+        egui::Modifiers {
+            command: true,
+            mac_cmd: cfg!(target_os = "macos"),
+            ctrl: !cfg!(target_os = "macos"),
+            ..Default::default()
+        }
+    }
+
+    fn minutes_ago(n: u64) -> Instant {
+        Instant::now()
+            .checked_sub(Duration::from_secs(n * 60))
+            .expect("the machine has been up for longer than that")
+    }
+
+    #[test]
+    fn autosave_writes_the_project_after_five_minutes_and_not_before() {
+        // Four minutes of unsaved changes: nothing is written yet.
+        let mut s = open_new();
+        s.action();
+        s.commit_history();
+        s.last_save = minutes_ago(4);
+        frame(&mut s, vec![]);
+        assert!(!s.project_path.exists(), "too early to autosave");
+        assert!(s.dirty);
+
+        // Six minutes: the frame saves in the background.
+        s.last_save = minutes_ago(6);
+        frame(&mut s, vec![]);
+        assert!(s.project_path.exists(), "autosave wrote the project");
+        assert!(!s.dirty);
+        assert!(
+            s.last_save.elapsed() < Duration::from_secs(5),
+            "timer restarted"
+        );
+        let reloaded =
+            arcweave_rust::project::Project::from_file(s.project_path.to_string_lossy().as_ref())
+                .unwrap();
+        assert_eq!(reloaded.name, "Undo test");
+
+        // Nothing changed since: even after another six minutes there is nothing to write.
+        std::fs::remove_file(&s.project_path).unwrap();
+        s.last_save = minutes_ago(6);
+        frame(&mut s, vec![]);
+        assert!(
+            !s.project_path.exists(),
+            "a clean project is never rewritten"
+        );
+    }
+
+    #[test]
+    fn delete_and_backspace_remove_the_selection_and_undo_shortcut_restores_it() {
+        for deleting_key in [egui::Key::Delete, egui::Key::Backspace] {
+            let mut s = open_new();
+            let id = s.new_element_at((300.0, 300.0));
+            s.commit_history();
+            let before = element_count(&s);
+
+            frame(&mut s, key(deleting_key, Default::default()));
+            assert_eq!(
+                element_count(&s),
+                before - 1,
+                "{deleting_key:?} deleted the element"
+            );
+            assert!(!s.project.elements.contains_key(&id));
+
+            frame(&mut s, key(egui::Key::Z, command()));
+            assert_eq!(element_count(&s), before, "undo shortcut brought it back");
+            frame(
+                &mut s,
+                key(
+                    egui::Key::Z,
+                    egui::Modifiers {
+                        shift: true,
+                        ..command()
+                    },
+                ),
+            );
+            assert_eq!(
+                element_count(&s),
+                before - 1,
+                "redo shortcut deleted it again"
+            );
+        }
+    }
+
+    #[test]
+    fn every_selection_state_draws_with_branches_variables_and_covers() {
+        use arcweave_rust::project::Value;
+        let mut s = open_new();
+        let start = s.project.starting_element.clone();
+        let next = s.new_element_at((400.0, 40.0));
+        s.connect_elements(&start, &next);
+        let conn = s.selected_conn.clone().unwrap();
+        s.insert_branch_on_connection(&conn);
+        let branch = s.selected_branch.clone().unwrap();
+        s.add_branch_condition(&branch, logic::CondKind::ElseIf);
+        s.add_branch_condition(&branch, logic::CondKind::Else);
+        logic::add_variable(&mut s.project, "hp", Value::Integer(3)).unwrap();
+        s.project.elements.get_mut(&start).unwrap().content = Some(crate::content::editor_to_html(
+            "Hello *world*\n$ hp = hp + 1\n$ if hp >",
+        ));
+        s.covers
+            .insert(start.as_str().to_owned(), "missing-asset".into());
+        s.show_variables = true;
+
+        let arm = logic::branch_conditions(&s.project, &branch);
+        type Select = Box<dyn Fn(&mut EditorState)>;
+        let selections: Vec<Select> = vec![
+            Box::new(|s| s.clear_selection()),
+            Box::new({
+                let id = start.clone();
+                move |s| s.select_element(id.clone())
+            }),
+            Box::new({
+                let id = branch.clone();
+                move |s| s.select_branch(id.clone())
+            }),
+            Box::new({
+                let id = conn.clone();
+                move |s| s.select_connection(id.clone())
+            }),
+            Box::new({
+                let id = arm[0].output.clone();
+                move |s| s.select_connection(id.clone())
+            }),
+        ];
+        for select in &selections {
+            select(&mut s);
+            // Two frames: the second runs with the first one's layout in place.
+            frame(&mut s, vec![]);
+            frame(&mut s, vec![]);
+        }
+        assert!(logic::check_integrity(&s.project).is_empty());
     }
 
     #[test]
@@ -410,7 +609,11 @@ mod tests {
         let after_else = element_count(&s);
         s.add_branch_condition(&branch, CondKind::Else);
         s.commit_history();
-        assert_eq!(element_count(&s), after_else, "refused else leaves no placeholder behind");
+        assert_eq!(
+            element_count(&s),
+            after_else,
+            "refused else leaves no placeholder behind"
+        );
         assert_eq!(branch_conditions(&s.project, &branch).len(), 3);
         assert!(check_integrity(&s.project).is_empty());
 
@@ -432,7 +635,10 @@ mod tests {
         assert_eq!(s.project.connections.len(), before_delete);
         assert_eq!(branch_conditions(&s.project, &branch).len(), 3);
         assert!(check_integrity(&s.project).is_empty());
-        assert!(s.layout.get_or_insert(branch.as_str(), (0.0, 0.0)) != (0.0, 0.0), "position restored");
+        assert!(
+            s.layout.get_or_insert(branch.as_str(), (0.0, 0.0)) != (0.0, 0.0),
+            "position restored"
+        );
     }
 
     #[test]
@@ -447,7 +653,10 @@ mod tests {
 
         s.insert_branch_on_connection(&conn);
         s.commit_history();
-        let branch = s.selected_branch.clone().expect("the new branch is selected");
+        let branch = s
+            .selected_branch
+            .clone()
+            .expect("the new branch is selected");
         assert!(logic::check_integrity(&s.project).is_empty());
         // start -> branch -> (if) next
         assert!(matches!(
@@ -476,8 +685,14 @@ mod tests {
         let copy = s.selected_element.clone().unwrap();
         assert_ne!(copy, id);
         assert_eq!(element_count(&s), before + 1);
-        assert_eq!(s.project.elements[&copy].content.as_deref(), Some("<p>Hello</p>"));
-        assert_eq!(s.covers.get(copy.as_str()).map(String::as_str), Some("asset-9"));
+        assert_eq!(
+            s.project.elements[&copy].content.as_deref(),
+            Some("<p>Hello</p>")
+        );
+        assert_eq!(
+            s.covers.get(copy.as_str()).map(String::as_str),
+            Some("asset-9")
+        );
         assert_eq!(s.layout.size(copy.as_str()), Some((320.0, 200.0)));
         s.undo();
         assert_eq!(element_count(&s), before);
@@ -486,15 +701,27 @@ mod tests {
     #[test]
     fn variable_edits_are_undoable() {
         let mut s = open_new();
-        let id = logic::add_variable(&mut s.project, "hp", arcweave_rust::project::Value::Integer(5)).unwrap();
+        let id = logic::add_variable(
+            &mut s.project,
+            "hp",
+            arcweave_rust::project::Value::Integer(5),
+        )
+        .unwrap();
         s.action();
         s.commit_history();
-        logic::set_variable_value(&mut s.project, &id, arcweave_rust::project::Value::Integer(9));
+        logic::set_variable_value(
+            &mut s.project,
+            &id,
+            arcweave_rust::project::Value::Integer(9),
+        );
         s.changed(format!("var:{}", id.as_str()));
         s.commit_history();
         s.undo();
         let hp = logic::list_variables(&s.project);
-        assert!(matches!(hp[0].value, arcweave_rust::project::Value::Integer(5)));
+        assert!(matches!(
+            hp[0].value,
+            arcweave_rust::project::Value::Integer(5)
+        ));
         s.undo();
         assert!(logic::list_variables(&s.project).is_empty());
     }

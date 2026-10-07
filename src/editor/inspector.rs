@@ -34,7 +34,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut EditorState) {
                      on an element or branch to connect them.",
                 );
                 ui.add_space(4.0);
-                ui.label("Right-click anywhere for more actions. Press Delete to remove the selection.");
+                ui.label("Right-click anywhere for more actions. Press Delete or Backspace to remove the selection.");
             }
         });
 }
@@ -189,8 +189,14 @@ fn show_branch(ui: &mut egui::Ui, state: &mut EditorState, id: &BranchRef) {
     for cond in &conditions {
         theme::card(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(cond.kind.label()).strong().color(egui::Color32::from_rgb(240, 190, 90)));
-                ui.label(egui::RichText::new(format!("→ {}", target_name(state, &cond.output))).weak());
+                ui.label(
+                    egui::RichText::new(cond.kind.label())
+                        .strong()
+                        .color(egui::Color32::from_rgb(240, 190, 90)),
+                );
+                ui.label(
+                    egui::RichText::new(format!("→ {}", target_name(state, &cond.output))).weak(),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if cond.kind != CondKind::If && ui.small_button("Remove").clicked() {
                         remove = Some(cond.id.clone());
@@ -217,10 +223,18 @@ fn show_branch(ui: &mut egui::Ui, state: &mut EditorState, id: &BranchRef) {
                     }
                 }
             } else {
-                ui.label(egui::RichText::new("Taken when no condition above holds.").small().weak());
+                ui.label(
+                    egui::RichText::new("Taken when no condition above holds.")
+                        .small()
+                        .weak(),
+                );
             }
 
-            ui.label(egui::RichText::new("Choice label (optional)").small().weak());
+            ui.label(
+                egui::RichText::new("Choice label (optional)")
+                    .small()
+                    .weak(),
+            );
             let current = state
                 .project
                 .connections
@@ -258,7 +272,10 @@ fn show_branch(ui: &mut egui::Ui, state: &mut EditorState, id: &BranchRef) {
             state.add_branch_condition(id, CondKind::ElseIf);
         }
         let has_else = conditions.iter().any(|c| c.kind == CondKind::Else);
-        if ui.add_enabled(!has_else, egui::Button::new("+ Else")).clicked() {
+        if ui
+            .add_enabled(!has_else, egui::Button::new("+ Else"))
+            .clicked()
+        {
             state.add_branch_condition(id, CondKind::Else);
         }
     });
@@ -276,7 +293,10 @@ fn show_branch(ui: &mut egui::Ui, state: &mut EditorState, id: &BranchRef) {
 
 /// Identifiers in a condition that are neither variables nor Arcscript words.
 fn unknown_identifiers(script: &str, variables: &[String]) -> Vec<String> {
-    let decoded = script.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
+    let decoded = script
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&");
     let mut unknown: Vec<String> = Vec::new();
     let mut in_string = false;
     let mut word = String::new();
@@ -335,7 +355,10 @@ fn show_cover_picker(ui: &mut egui::Ui, state: &mut EditorState, id: &ElementRef
         .width(ui.available_width() - 8.0)
         .selected_text(current_name.clone().unwrap_or_else(|| "None".to_owned()))
         .show_ui(ui, |ui| {
-            if ui.selectable_label(current_asset.is_none(), "None").clicked() {
+            if ui
+                .selectable_label(current_asset.is_none(), "None")
+                .clicked()
+            {
                 chosen = Some(None);
             }
             for (asset_id, name) in covers::choices(&state.project) {

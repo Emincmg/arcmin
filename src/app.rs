@@ -32,7 +32,7 @@ struct LoadedProject {
 enum Screen {
     Title { error: Option<String> },
     Playing { session: Session },
-    Editing { editor: EditorState },
+    Editing { editor: Box<EditorState> },
     Ended,
 }
 
@@ -58,10 +58,11 @@ impl Default for App {
             new_name: String::new(),
         };
         // Reopen the last project straight into the editor.
-        if let Some(json) = library::last_project() {
-            if app.load(json).is_ok() {
-                app.screen = app.edit_screen();
-            }
+        if let Some(json) = library::last_project()
+            && app.load(json).is_ok()
+            && let Ok(screen) = app.edit_screen()
+        {
+            app.screen = screen;
         }
         app
     }
@@ -106,11 +107,14 @@ impl App {
         Ok(())
     }
 
-    fn edit_screen(&self) -> Screen {
-        let loaded = self.loaded.as_ref().expect("a project is loaded");
-        Screen::Editing {
-            editor: EditorState::open(loaded.project.clone(), loaded.path.clone()),
-        }
+    fn edit_screen(&self) -> Result<Screen, String> {
+        let loaded = self.loaded.as_ref().ok_or("No project is open")?;
+        Ok(Screen::Editing {
+            editor: Box::new(EditorState::open(
+                loaded.project.clone(),
+                loaded.path.clone(),
+            )?),
+        })
     }
 
     fn autosave(&self, session: &Session) {
@@ -123,10 +127,10 @@ impl App {
 
 impl eframe::App for App {
     fn on_exit(&mut self) {
-        if let Screen::Editing { editor } = &mut self.screen {
-            if editor.dirty {
-                editor.save();
-            }
+        if let Screen::Editing { editor } = &mut self.screen
+            && editor.dirty
+        {
+            editor.save();
         }
     }
 
@@ -178,6 +182,9 @@ impl eframe::App for App {
                                             }
                                             if ui.button("Play").clicked() {
                                                 action = Some((p.json.clone(), LibAction::Play));
+                                            }
+                                            if ui.button(library::file_manager_label()).clicked() {
+                                                library::reveal(&p.json);
                                             }
                                             if p.has_save && ui.button("Continue").clicked() {
                                                 action = Some((p.json.clone(), LibAction::Continue));
@@ -233,8 +240,8 @@ impl eframe::App for App {
                         Err(e) => error = Some(format!("Could not create project: {e}")),
                     }
                 }
-                if import_requested {
-                    if let Some(path) = rfd::FileDialog::new()
+                if import_requested
+                    && let Some(path) = rfd::FileDialog::new()
                         .add_filter("Arcweave export (json)", &["json"])
                         .set_title("Select the Arcweave export (project_settings.json)")
                         .pick_file()
@@ -247,20 +254,26 @@ impl eframe::App for App {
                             Err(e) => error = Some(e),
                         }
                     }
-                }
 
                 if let Some((json, what)) = open_json {
                     match self.load(json) {
                         Ok(()) => {
-                            let loaded = self.loaded.as_ref().expect("just loaded");
+                            let Some(loaded) = self.loaded.as_ref() else {
+                                next_screen = Some(Screen::Title {
+                                    error: Some("No project is open".to_owned()),
+                                });
+                                return;
+                            };
                             match what {
-                                LibAction::Edit => {
-                                    let mut screen = self.edit_screen();
-                                    if let Screen::Editing { editor } = &mut screen {
-                                        editor.notice = notice.take();
+                                LibAction::Edit => match self.edit_screen() {
+                                    Ok(mut screen) => {
+                                        if let Screen::Editing { editor } = &mut screen {
+                                            editor.notice = notice.take();
+                                        }
+                                        next_screen = Some(screen);
                                     }
-                                    next_screen = Some(screen);
-                                }
+                                    Err(e) => error = Some(e),
+                                },
                                 LibAction::Play => {
                                     next_screen = Some(Screen::Playing {
                                         session: Session::start(loaded.project.clone()),
@@ -315,15 +328,14 @@ impl eframe::App for App {
                 let title = session.title();
                 let body = session.body_text();
                 let mut covers = session.current_covers();
-                if let (Some(loaded), Some(element)) = (&self.loaded, session.current_element_id()) {
-                    if let Some(name) = loaded
+                if let (Some(loaded), Some(element)) = (&self.loaded, session.current_element_id())
+                    && let Some(name) = loaded
                         .covers
                         .get(&element)
                         .and_then(|asset_id| covers::file_name(&loaded.project, asset_id))
                     {
                         covers.insert(0, name);
                     }
-                }
                 let choices = session.choices();
 
                 egui::ScrollArea::vertical()

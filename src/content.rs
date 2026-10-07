@@ -94,12 +94,12 @@ fn split_blocks(html: &str) -> Vec<Block<'_>> {
     let mut out = Vec::new();
     let mut rest = html.trim();
     while !rest.is_empty() {
-        if let Some(inner) = rest.strip_prefix("<p>") {
-            if let Some(end) = inner.find("</p>") {
-                out.push(Block::Para(&inner[..end]));
-                rest = inner[end + 4..].trim_start();
-                continue;
-            }
+        if let Some(inner) = rest.strip_prefix("<p>")
+            && let Some(end) = inner.find("</p>")
+        {
+            out.push(Block::Para(&inner[..end]));
+            rest = inner[end + 4..].trim_start();
+            continue;
         }
         if rest.starts_with("<pre") {
             let code = rest
@@ -135,7 +135,9 @@ fn decode_entities(s: &str) -> String {
 }
 
 fn encode_entities(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Paragraph inner HTML -> editor text. `None` if it holds tags we can't represent.
@@ -203,7 +205,11 @@ pub fn html_to_editor(html: &str) -> String {
             Block::Raw(raw) => (format!("!html {}", raw.replace('\n', " ")), false),
         };
         if !out.is_empty() {
-            out.push_str(if prev_was_para && is_para { "\n\n" } else { "\n" });
+            out.push_str(if prev_was_para && is_para {
+                "\n\n"
+            } else {
+                "\n"
+            });
         }
         out.push_str(&text);
         prev_was_para = is_para;
@@ -227,7 +233,11 @@ fn marks_to_html(line: &str) -> String {
                 let run = if chars.get(i + 1) == Some(&'*') { 2 } else { 1 };
                 let next_ok = chars.get(i + run).is_some_and(|c| !c.is_whitespace());
                 let flag = if run == 2 { &mut strong } else { &mut em };
-                let (open, close) = if run == 2 { ("<strong>", "</strong>") } else { ("<em>", "</em>") };
+                let (open, close) = if run == 2 {
+                    ("<strong>", "</strong>")
+                } else {
+                    ("<em>", "</em>")
+                };
                 if *flag {
                     *flag = false;
                     out.push_str(close);
@@ -291,7 +301,10 @@ pub fn editor_to_html(text: &str) -> String {
             out.push_str(raw);
         } else if let Some(code) = trimmed.strip_prefix("$ ") {
             flush(&mut out, &mut para);
-            out.push_str(&format!("<pre><code>{}</code></pre>", encode_entities(code.trim())));
+            out.push_str(&format!(
+                "<pre><code>{}</code></pre>",
+                encode_entities(code.trim())
+            ));
         } else if trimmed.is_empty() {
             flush(&mut out, &mut para);
         } else {
@@ -330,7 +343,10 @@ mod editor_text_tests {
 
     #[test]
     fn literal_asterisks_and_entities_are_not_mistaken_for_markup() {
-        assert_eq!(rt("<p>5 * 3 = 15 &amp; more</p>"), "<p>5 * 3 = 15 &amp; more</p>");
+        assert_eq!(
+            rt("<p>5 * 3 = 15 &amp; more</p>"),
+            "<p>5 * 3 = 15 &amp; more</p>"
+        );
         assert_eq!(rt("<p>a &lt; b</p>"), "<p>a &lt; b</p>");
         assert_eq!(rt("<p>2*3 and 4*5</p>"), "<p>2*3 and 4*5</p>");
     }
@@ -348,7 +364,8 @@ mod editor_text_tests {
         let html = "<p>See <a href=\"x\">this</a></p>";
         assert!(html_to_editor(html).starts_with("!html "));
         assert_eq!(rt(html), html);
-        let mention = "<pre><code>visits(<span data-id=\"a\" data-type=\"element\">E</span>)</code></pre>";
+        let mention =
+            "<pre><code>visits(<span data-id=\"a\" data-type=\"element\">E</span>)</code></pre>";
         assert_eq!(rt(mention), mention);
     }
 

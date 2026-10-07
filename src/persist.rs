@@ -155,7 +155,10 @@ mod tests {
 
         let project = Project::from_file(copy.to_string_lossy().as_ref()).unwrap();
         let covers = crate::covers::load(&copy);
-        assert!(!covers.is_empty(), "expected the export to contain element covers");
+        assert!(
+            !covers.is_empty(),
+            "expected the export to contain element covers"
+        );
         save(&copy, &project, &covers).unwrap();
 
         let before: Value = serde_json::from_str(&std::fs::read_to_string(&src).unwrap()).unwrap();
@@ -186,6 +189,10 @@ mod tests {
         }
         let mut lost = vec![];
         missing(String::new(), &before, &after, &mut lost);
-        assert!(lost.is_empty(), "lost keys: {:?}", &lost[..lost.len().min(10)]);
+        assert!(
+            lost.is_empty(),
+            "lost keys: {:?}",
+            &lost[..lost.len().min(10)]
+        );
     }
 }

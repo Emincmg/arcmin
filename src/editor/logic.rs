@@ -18,8 +18,28 @@ use super::model::{new_id, remove_connection_raw};
 
 /// Words Arcscript treats specially; a variable called one of these can't be used.
 pub const RESERVED: &[&str] = &[
-    "abs", "and", "else", "elseif", "endif", "false", "if", "is", "max", "min", "not", "or",
-    "random", "reset", "resetAll", "resetVisits", "roll", "round", "show", "sqr", "sqrt", "true",
+    "abs",
+    "and",
+    "else",
+    "elseif",
+    "endif",
+    "false",
+    "if",
+    "is",
+    "max",
+    "min",
+    "not",
+    "or",
+    "random",
+    "reset",
+    "resetAll",
+    "resetVisits",
+    "roll",
+    "round",
+    "show",
+    "sqr",
+    "sqrt",
+    "true",
     "visits",
 ];
 
@@ -35,9 +55,7 @@ pub fn var_name_error(name: &str) -> Option<String> {
     let mut chars = name.chars();
     match chars.next() {
         None => Some("Name can't be empty".to_owned()),
-        Some(c) if !is_ident_start(c) => {
-            Some("Must start with a letter, _ or $".to_owned())
-        }
+        Some(c) if !is_ident_start(c) => Some("Must start with a letter, _ or $".to_owned()),
         _ if !name.chars().all(is_ident_char) => {
             Some("Only letters, digits, _ and $ are allowed".to_owned())
         }
@@ -99,7 +117,11 @@ pub fn list_variables(project: &Project) -> Vec<VarInfo> {
                 value: value.clone(),
                 scope: None,
             }),
-            Variable::Board { name, board_id, value } => Some(VarInfo {
+            Variable::Board {
+                name,
+                board_id,
+                value,
+            } => Some(VarInfo {
                 id: id.clone(),
                 name: name.clone(),
                 value: value.clone(),
@@ -133,13 +155,10 @@ pub fn add_variable(project: &mut Project, name: &str, value: Value) -> Result<V
             value,
         },
     );
-    let root = project
-        .variables
-        .iter_mut()
-        .find_map(|(_, v)| match v {
-            Variable::Root { children, .. } => Some(children),
-            _ => None,
-        });
+    let root = project.variables.iter_mut().find_map(|(_, v)| match v {
+        Variable::Root { children, .. } => Some(children),
+        _ => None,
+    });
     match root {
         Some(children) => children.push(id.clone()),
         None => {
@@ -159,7 +178,11 @@ pub fn add_variable(project: &mut Project, name: &str, value: Value) -> Result<V
 pub fn fresh_variable_name(project: &Project) -> String {
     let mut n = 1;
     loop {
-        let name = if n == 1 { "variable".to_owned() } else { format!("variable{n}") };
+        let name = if n == 1 {
+            "variable".to_owned()
+        } else {
+            format!("variable{n}")
+        };
         if !name_taken(project, &name, None) {
             return name;
         }
@@ -176,7 +199,11 @@ pub fn set_variable_value(project: &mut Project, id: &VarRef, new: Value) {
 
 /// Renames a variable and rewrites every script that mentions it.
 /// Returns how many references were updated.
-pub fn rename_variable(project: &mut Project, id: &VarRef, new_name: &str) -> Result<usize, String> {
+pub fn rename_variable(
+    project: &mut Project,
+    id: &VarRef,
+    new_name: &str,
+) -> Result<usize, String> {
     let old = match project.variables.get(id) {
         Some(Variable::Global { name, .. }) | Some(Variable::Board { name, .. }) => name.clone(),
         _ => return Err("No such variable".to_owned()),
@@ -216,8 +243,12 @@ fn code_snippets(project: &Project) -> Vec<String> {
     fn spans(html: &str, out: &mut Vec<String>) {
         let mut rest = html;
         while let Some(start) = rest.find("<code") {
-            let Some(open_end) = rest[start..].find('>').map(|i| start + i + 1) else { break };
-            let Some(close) = rest[open_end..].find("</code>").map(|i| open_end + i) else { break };
+            let Some(open_end) = rest[start..].find('>').map(|i| start + i + 1) else {
+                break;
+            };
+            let Some(close) = rest[open_end..].find("</code>").map(|i| open_end + i) else {
+                break;
+            };
             out.push(rest[open_end..close].to_owned());
             rest = &rest[close..];
         }
@@ -242,7 +273,12 @@ pub fn variable_usages(project: &Project, names: &[&str]) -> Vec<usize> {
     let snippets = code_snippets(project);
     names
         .iter()
-        .map(|name| snippets.iter().map(|code| replace_ident(code, name, name).1).sum())
+        .map(|name| {
+            snippets
+                .iter()
+                .map(|code| replace_ident(code, name, name).1)
+                .sum()
+        })
         .collect()
 }
 
@@ -261,7 +297,12 @@ pub enum ValueKind {
 }
 
 impl ValueKind {
-    pub const ALL: [ValueKind; 4] = [ValueKind::Integer, ValueKind::Float, ValueKind::Boolean, ValueKind::String];
+    pub const ALL: [ValueKind; 4] = [
+        ValueKind::Integer,
+        ValueKind::Float,
+        ValueKind::Boolean,
+        ValueKind::String,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -372,13 +413,20 @@ fn rewrite_code(
     project: &mut Project,
     f: &mut dyn FnMut(&str) -> Option<(String, usize)>,
 ) -> usize {
-    fn in_html(html: &str, f: &mut dyn FnMut(&str) -> Option<(String, usize)>) -> Option<(String, usize)> {
+    fn in_html(
+        html: &str,
+        f: &mut dyn FnMut(&str) -> Option<(String, usize)>,
+    ) -> Option<(String, usize)> {
         let mut out = String::with_capacity(html.len());
         let mut total = 0;
         let mut rest = html;
         while let Some(start) = rest.find("<code") {
-            let Some(open_end) = rest[start..].find('>').map(|i| start + i + 1) else { break };
-            let Some(close) = rest[open_end..].find("</code>").map(|i| open_end + i) else { break };
+            let Some(open_end) = rest[start..].find('>').map(|i| start + i + 1) else {
+                break;
+            };
+            let Some(close) = rest[open_end..].find("</code>").map(|i| open_end + i) else {
+                break;
+            };
             out.push_str(&rest[..open_end]);
             let code = &rest[open_end..close];
             match f(code) {
@@ -408,7 +456,7 @@ fn rewrite_code(
         }
     }
     for cond in project.conditions.values_mut() {
-        if let Some((new, n)) = cond.script.as_deref().and_then(|s| f(s)) {
+        if let Some((new, n)) = cond.script.as_deref().and_then(&mut *f) {
             cond.script = Some(new);
             total += n;
         }
@@ -451,8 +499,16 @@ pub fn branch_conditions(project: &Project, branch: &BranchRef) -> Vec<CondInfo>
     };
     let c = &b.conditions;
     let mut order = vec![(c.if_condition.clone(), CondKind::If)];
-    order.extend(c.else_if_conditions.iter().map(|id| (id.clone(), CondKind::ElseIf)));
-    order.extend(c.else_condition.iter().map(|id| (id.clone(), CondKind::Else)));
+    order.extend(
+        c.else_if_conditions
+            .iter()
+            .map(|id| (id.clone(), CondKind::ElseIf)),
+    );
+    order.extend(
+        c.else_condition
+            .iter()
+            .map(|id| (id.clone(), CondKind::Else)),
+    );
     order
         .into_iter()
         .filter_map(|(id, kind)| {
@@ -662,7 +718,10 @@ fn drop_condition(project: &mut Project, board: &BoardRef, cond: &CondRef) {
 /// Removes a branch, all its conditions (and their connections) and every
 /// connection leading into it.
 pub fn delete_branch(project: &mut Project, board: &BoardRef, branch: &BranchRef) {
-    let conds: Vec<CondRef> = branch_conditions(project, branch).into_iter().map(|c| c.id).collect();
+    let conds: Vec<CondRef> = branch_conditions(project, branch)
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
     for cond in &conds {
         drop_condition(project, board, cond);
     }
@@ -705,7 +764,10 @@ pub fn check_integrity(project: &Project) -> Vec<String> {
     }
     for (id, cond) in &project.conditions {
         if !project.connections.contains_key(&cond.output) {
-            problems.push(format!("condition {} has no output connection", id.as_str()));
+            problems.push(format!(
+                "condition {} has no output connection",
+                id.as_str()
+            ));
         }
         if branch_of_condition(project, id).is_none() {
             problems.push(format!("condition {} belongs to no branch", id.as_str()));
@@ -718,7 +780,10 @@ pub fn check_integrity(project: &Project) -> Vec<String> {
             .chain(c.else_condition.as_ref());
         for r in refs {
             if !project.conditions.contains_key(r) {
-                problems.push(format!("branch {} references missing condition", id.as_str()));
+                problems.push(format!(
+                    "branch {} references missing condition",
+                    id.as_str()
+                ));
             }
         }
     }
@@ -730,7 +795,13 @@ pub fn check_integrity(project: &Project) -> Vec<String> {
         }
     }
     for board in project.boards.values() {
-        if let Board::Node { connections, branches, elements, .. } = board {
+        if let Board::Node {
+            connections,
+            branches,
+            elements,
+            ..
+        } = board
+        {
             problems.extend(
                 connections
                     .iter()
@@ -758,7 +829,9 @@ pub fn check_integrity(project: &Project) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::content::editor_to_html;
-    use crate::editor::model::{add_connection, add_element, delete_connection, delete_element, new_project};
+    use crate::editor::model::{
+        add_connection, add_element, delete_connection, delete_element, new_project,
+    };
     use arcweave_rust::Runtime;
 
     struct Story {
@@ -776,7 +849,14 @@ mod tests {
         let b = add_element(&mut project, &board);
         let c = add_element(&mut project, &board);
         let conn = add_connection(&mut project, &board, &a, &b);
-        Story { project, board, a, b, c, conn }
+        Story {
+            project,
+            board,
+            a,
+            b,
+            c,
+            conn,
+        }
     }
 
     fn int(v: i32) -> Value {
@@ -788,10 +868,10 @@ mod tests {
         fn find(v: &serde_json::Value, name: &str) -> Option<serde_json::Value> {
             match v {
                 serde_json::Value::Object(m) => {
-                    if m.get("name").and_then(|n| n.as_str()) == Some(name) {
-                        if let Some(val) = m.get("value") {
-                            return Some(val.clone());
-                        }
+                    if m.get("name").and_then(|n| n.as_str()) == Some(name)
+                        && let Some(val) = m.get("value")
+                    {
+                        return Some(val.clone());
                     }
                     m.values().find_map(|x| find(x, name))
                 }
@@ -844,7 +924,10 @@ mod tests {
         set_condition_script(&mut s.project, &mid, Some("hp > 3".into()));
         add_condition(&mut s.project, &s.board, &branch, CondKind::Else, &d).unwrap();
 
-        let kinds: Vec<_> = branch_conditions(&s.project, &branch).iter().map(|c| c.kind).collect();
+        let kinds: Vec<_> = branch_conditions(&s.project, &branch)
+            .iter()
+            .map(|c| c.kind)
+            .collect();
         assert_eq!(kinds, [CondKind::If, CondKind::ElseIf, CondKind::Else]);
 
         for (value, expect) in [(9, &s.b), (5, &s.c), (1, &d)] {
@@ -887,19 +970,32 @@ mod tests {
             Some(editor_to_html("$ hpx = hp + 1"));
         let branch = insert_branch_on_connection(&mut s.project, &s.board, &s.conn).unwrap();
         let first = branch_conditions(&s.project, &branch)[0].id.clone();
-        set_condition_script(&mut s.project, &first, Some("hp &gt; 5 and hp &lt; 20".into()));
+        set_condition_script(
+            &mut s.project,
+            &first,
+            Some("hp &gt; 5 and hp &lt; 20".into()),
+        );
 
         assert_eq!(variable_usage(&s.project, "hp"), 6);
 
         let n = rename_variable(&mut s.project, &hp, "health").unwrap();
         assert_eq!(n, 6);
         let content = s.project.elements[&s.b].content.clone().unwrap();
-        assert!(content.contains("Your hp is low, hp matters."), "prose untouched: {content}");
+        assert!(
+            content.contains("Your hp is low, hp matters."),
+            "prose untouched: {content}"
+        );
         assert!(content.contains("health = health - 1"));
         assert!(content.contains("\"hp\""), "string literal untouched");
-        assert!(content.contains("if health &lt; 4"), "entities preserved: {content}");
+        assert!(
+            content.contains("if health &lt; 4"),
+            "entities preserved: {content}"
+        );
         let label = s.project.connections[&s.conn].label.clone().unwrap();
-        assert!(label.contains("hpx = health + 1"), "longer identifier untouched: {label}");
+        assert!(
+            label.contains("hpx = health + 1"),
+            "longer identifier untouched: {label}"
+        );
         assert_eq!(
             s.project.conditions[&first].script.as_deref(),
             Some("health &gt; 5 and health &lt; 20")
@@ -916,9 +1012,18 @@ mod tests {
         assert_eq!(t(Value::Float(2.6), ValueKind::Integer), "Integer(3)");
         assert_eq!(t(Value::Boolean(true), ValueKind::Integer), "Integer(1)");
         assert_eq!(t(Value::Integer(0), ValueKind::Boolean), "Boolean(false)");
-        assert_eq!(t(Value::String("42".into()), ValueKind::Integer), "Integer(42)");
-        assert_eq!(t(Value::String("nope".into()), ValueKind::Integer), "Integer(0)");
-        assert_eq!(t(Value::String("true".into()), ValueKind::Boolean), "Boolean(true)");
+        assert_eq!(
+            t(Value::String("42".into()), ValueKind::Integer),
+            "Integer(42)"
+        );
+        assert_eq!(
+            t(Value::String("nope".into()), ValueKind::Integer),
+            "Integer(0)"
+        );
+        assert_eq!(
+            t(Value::String("true".into()), ValueKind::Boolean),
+            "Boolean(true)"
+        );
         assert_eq!(t(Value::Integer(7), ValueKind::String), "String(\"7\")");
         assert_eq!(ValueKind::of(&Value::Float(1.0)), ValueKind::Float);
     }
@@ -928,9 +1033,15 @@ mod tests {
         let mut s = story();
         add_variable(&mut s.project, "hp", int(1)).unwrap();
         for bad in ["", "1abc", "has space", "a-b", "if", "true", "visits", "é"] {
-            assert!(add_variable(&mut s.project, bad, int(0)).is_err(), "{bad:?} should be rejected");
+            assert!(
+                add_variable(&mut s.project, bad, int(0)).is_err(),
+                "{bad:?} should be rejected"
+            );
         }
-        assert!(add_variable(&mut s.project, "hp", int(2)).is_err(), "duplicate refused");
+        assert!(
+            add_variable(&mut s.project, "hp", int(2)).is_err(),
+            "duplicate refused"
+        );
         let other = add_variable(&mut s.project, "$gold_2", Value::Boolean(false)).unwrap();
         assert!(rename_variable(&mut s.project, &other, "hp").is_err());
         assert_eq!(fresh_variable_name(&s.project), "variable");
@@ -962,11 +1073,20 @@ mod tests {
         let branch = insert_branch_on_connection(&mut s.project, &s.board, &s.conn).unwrap();
         add_condition(&mut s.project, &s.board, &branch, CondKind::Else, &s.c).unwrap();
         delete_element(&mut s.project, &s.board, &s.b);
-        assert!(s.project.branches.is_empty(), "branch gone with its `if` target");
+        assert!(
+            s.project.branches.is_empty(),
+            "branch gone with its `if` target"
+        );
         assert!(s.project.conditions.is_empty());
         assert_eq!(check_integrity(&s.project), Vec::<String>::new());
-        assert!(s.project.elements.contains_key(&s.c), "other elements survive");
-        assert!(s.project.connections.is_empty(), "incoming + both condition connections gone");
+        assert!(
+            s.project.elements.contains_key(&s.c),
+            "other elements survive"
+        );
+        assert!(
+            s.project.connections.is_empty(),
+            "incoming + both condition connections gone"
+        );
     }
 
     #[test]
@@ -1004,7 +1124,10 @@ mod tests {
         let branch = insert_branch_on_connection(&mut s.project, &s.board, &s.conn).unwrap();
         delete_branch(&mut s.project, &s.board, &branch);
         assert!(s.project.connections.is_empty());
-        assert!(s.project.elements[&s.a].outputs.is_empty(), "no dangling output on the source");
+        assert!(
+            s.project.elements[&s.a].outputs.is_empty(),
+            "no dangling output on the source"
+        );
         assert_eq!(check_integrity(&s.project), Vec::<String>::new());
     }
 
@@ -1055,7 +1178,8 @@ mod tests {
         let mut s = story();
         let d = add_element(&mut s.project, &s.board);
         let hp = add_variable(&mut s.project, "hp", int(10)).unwrap();
-        s.project.connections.get_mut(&s.conn).unwrap().label = Some(editor_to_html("Push forward"));
+        s.project.connections.get_mut(&s.conn).unwrap().label =
+            Some(editor_to_html("Push forward"));
         let branch = insert_branch_on_connection(&mut s.project, &s.board, &s.conn).unwrap();
         let first = branch_conditions(&s.project, &branch)[0].id.clone();
         set_condition_script(&mut s.project, &first, Some("hp > 8".into()));
@@ -1067,10 +1191,18 @@ mod tests {
         let choices = session.choices();
         let labels: Vec<_> = choices.iter().map(|c| c.label.as_str()).collect();
         println!("choices shown at the element: {labels:?}");
-        assert_eq!(labels, ["Push forward"], "one choice, not one per branch row");
+        assert_eq!(
+            labels,
+            ["Push forward"],
+            "one choice, not one per branch row"
+        );
 
         session.follow(&choices[0].conn).unwrap();
-        assert_eq!(session.current_element_id().as_deref(), Some(s.b.as_str()), "hp=10 -> if");
+        assert_eq!(
+            session.current_element_id().as_deref(),
+            Some(s.b.as_str()),
+            "hp=10 -> if"
+        );
 
         // Same story, lower hp -> the else-if / else outcomes.
         for (value, expect) in [(5, &s.c), (1, &d)] {
@@ -1079,7 +1211,11 @@ mod tests {
             let mut session = Session::start(p);
             let choice = session.choices().remove(0);
             session.follow(&choice.conn).unwrap();
-            assert_eq!(session.current_element_id().as_deref(), Some(expect.as_str()), "hp={value}");
+            assert_eq!(
+                session.current_element_id().as_deref(),
+                Some(expect.as_str()),
+                "hp={value}"
+            );
         }
     }
 
@@ -1112,10 +1248,16 @@ mod tests {
         retarget_condition(&mut s.project, &first, &s.b);
 
         for (arm, label) in branch_conditions(&s.project, &branch).iter().zip(labels) {
-            s.project.connections.get_mut(&arm.output).unwrap().label =
-                label.map(editor_to_html);
+            s.project.connections.get_mut(&arm.output).unwrap().label = label.map(editor_to_html);
         }
-        Door { project: s.project, b: s.b, c: s.c, d, has_key, strong }
+        Door {
+            project: s.project,
+            b: s.b,
+            c: s.c,
+            d,
+            has_key,
+            strong,
+        }
     }
 
     fn shown(door: &Door, has_key: bool, strong: bool) -> Vec<String> {
@@ -1123,28 +1265,52 @@ mod tests {
         let mut p = door.project.clone();
         set_variable_value(&mut p, &door.has_key, Value::Boolean(has_key));
         set_variable_value(&mut p, &door.strong, Value::Boolean(strong));
-        Session::start(p).choices().into_iter().map(|c| c.label).collect()
+        Session::start(p)
+            .choices()
+            .into_iter()
+            .map(|c| c.label)
+            .collect()
     }
 
     #[test]
     fn labelled_arms_become_choices_when_their_condition_holds() {
-        let door = door([Some("Use the key"), Some("Break the door"), Some("Turn back")]);
+        let door = door([
+            Some("Use the key"),
+            Some("Break the door"),
+            Some("Turn back"),
+        ]);
         assert_eq!(shown(&door, true, false), ["Use the key"]);
         assert_eq!(shown(&door, false, true), ["Break the door"]);
-        assert_eq!(shown(&door, false, false), ["Turn back"], "else is the fallback");
-        assert_eq!(shown(&door, true, true), ["Use the key", "Break the door"], "guards are independent");
+        assert_eq!(
+            shown(&door, false, false),
+            ["Turn back"],
+            "else is the fallback"
+        );
+        assert_eq!(
+            shown(&door, true, true),
+            ["Use the key", "Break the door"],
+            "guards are independent"
+        );
     }
 
     #[test]
     fn picking_a_labelled_arm_lands_on_its_target() {
         use crate::session::Session;
-        let door = door([Some("Use the key"), Some("Break the door"), Some("Turn back")]);
+        let door = door([
+            Some("Use the key"),
+            Some("Break the door"),
+            Some("Turn back"),
+        ]);
         let land_on = |has_key, strong, pick: &str| -> ElementRef {
             let mut p = door.project.clone();
             set_variable_value(&mut p, &door.has_key, Value::Boolean(has_key));
             set_variable_value(&mut p, &door.strong, Value::Boolean(strong));
             let mut session = Session::start(p);
-            let choice = session.choices().into_iter().find(|c| c.label == pick).unwrap();
+            let choice = session
+                .choices()
+                .into_iter()
+                .find(|c| c.label == pick)
+                .unwrap();
             session.follow(&choice.conn).unwrap();
             ElementRef::from(session.current_element_id().unwrap().as_str())
         };
@@ -1186,7 +1352,10 @@ mod tests {
             .project
             .connections
             .iter()
-            .find(|(_, c)| matches!(c.target, TargetRef::Element(ref e) if e == &door.b) && matches!(c.source, SourceRef::Condition(_)))
+            .find(|(_, c)| {
+                matches!(c.target, TargetRef::Element(ref e) if e == &door.b)
+                    && matches!(c.source, SourceRef::Condition(_))
+            })
             .map(|(id, _)| id.clone())
             .unwrap();
         door.project.connections.get_mut(&arm).unwrap().label =
@@ -1208,16 +1377,28 @@ mod tests {
 
     #[test]
     fn validation_catches_syntax_errors() {
-        for ok in ["true", "hp > 5", "hp > 5 and not dead", "visits(x) is 0", "a == \"s\""] {
+        for ok in [
+            "true",
+            "hp > 5",
+            "hp > 5 and not dead",
+            "visits(x) is 0",
+            "a == \"s\"",
+        ] {
             if ok.contains("visits") {
                 continue; // needs an element mention; covered by the crate's own tests
             }
             assert_eq!(validate_condition(ok), None, "{ok}");
         }
         for bad in ["", "   ", "hp >", "hp > > 5", "(hp"] {
-            assert!(validate_condition(bad).is_some(), "{bad:?} should be an error");
+            assert!(
+                validate_condition(bad).is_some(),
+                "{bad:?} should be an error"
+            );
         }
-        assert_eq!(validate_content(&editor_to_html("Hi\n$ hp += 1\n$ if hp > 3\nok\n$ endif")), None);
+        assert_eq!(
+            validate_content(&editor_to_html("Hi\n$ hp += 1\n$ if hp > 3\nok\n$ endif")),
+            None
+        );
         assert!(validate_content(&editor_to_html("$ hp +=")).is_some());
         assert!(
             validate_content(&editor_to_html("$ if hp < 4\nweak")).is_some(),
@@ -1225,12 +1406,16 @@ mod tests {
         );
     }
 
-    /// Not a real test: writes a small branching story to `$ARCMIN_DEMO_OUT` so the
-    /// editor can be looked at with realistic data. Run with `--ignored`.
+    /// Not a real test: writes a small branching story into the library at
+    /// `$ARCMIN_DATA_DIR` so the editor can be looked at with realistic data.
+    /// Run with `--ignored`.
     #[test]
     #[ignore]
     fn write_demo_project() {
-        let Ok(out) = std::env::var("ARCMIN_DEMO_OUT") else { return };
+        let Ok(out) = std::env::var("ARCMIN_DATA_DIR") else {
+            return;
+        };
+        let out = std::path::Path::new(&out).join("projects");
         let (mut project, board, start) = new_project("Branch Demo");
         let a = add_element(&mut project, &board);
         let b = add_element(&mut project, &board);
@@ -1241,8 +1426,18 @@ mod tests {
             el.title = Some(format!("<p>{title}</p>"));
             el.content = Some(editor_to_html(text));
         };
-        set(&mut project, &start, "Gate", "A guard blocks the gate. You have a key, but the guard looks tired.");
-        set(&mut project, &a, "Fight", "You fight and get hurt.\n$ hp = hp - 6");
+        set(
+            &mut project,
+            &start,
+            "Gate",
+            "A guard blocks the gate. You have a key, but the guard looks tired.",
+        );
+        set(
+            &mut project,
+            &a,
+            "Fight",
+            "You fight and get hurt.\n$ hp = hp - 6",
+        );
         set(&mut project, &b, "Sneak in", "You slip past with the key.");
         set(&mut project, &c, "Turn back", "You give up and go home.");
         set(&mut project, &d, "Ending", "The story ends.");
@@ -1270,11 +1465,16 @@ mod tests {
         add_connection(&mut project, &board, &a, &d);
         add_connection(&mut project, &board, &b, &d);
 
-        let dir = std::path::Path::new(&out).join("Branch Demo");
+        let dir = out.join("Branch Demo");
         std::fs::create_dir_all(dir.join("assets")).unwrap();
-        crate::persist::save(&dir.join("project_settings.json"), &project, &Default::default()).unwrap();
+        crate::persist::save(
+            &dir.join("project_settings.json"),
+            &project,
+            &Default::default(),
+        )
+        .unwrap();
         std::fs::write(
-            std::path::Path::new(&out).parent().unwrap().join("state.json"),
+            out.parent().unwrap().join("state.json"),
             r#"{"last":"Branch Demo"}"#,
         )
         .unwrap();

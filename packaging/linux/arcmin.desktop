@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=arcmin
+Comment=Editor and player for branching interactive stories
+Exec=arcmin
+Icon=arcmin
+Categories=Utility;Development;
+Terminal=false
+StartupWMClass=arcmin

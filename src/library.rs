@@ -22,18 +22,44 @@ struct LibraryState {
     last: Option<String>,
 }
 
+/// Where arcmin keeps its projects: the platform's per-user data directory
+/// (`~/Library/Application Support` on macOS, `%APPDATA%` on Windows,
+/// `$XDG_DATA_HOME` or `~/.local/share` on Linux). Set `ARCMIN_DATA_DIR` to use
+/// another location, e.g. for a portable install.
 fn data_dir() -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let base = if cfg!(target_os = "macos") {
-        home.join("Library/Application Support")
-    } else if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
-        PathBuf::from(xdg)
+    if let Some(dir) = std::env::var_os("ARCMIN_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("arcmin")
+}
+
+/// What to call the system file manager on this platform.
+pub fn file_manager_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Show in Finder"
+    } else if cfg!(target_os = "windows") {
+        "Show in Explorer"
     } else {
-        home.join(".local/share")
+        "Show Files"
+    }
+}
+
+/// Opens the folder that holds a project in the system file manager.
+pub fn reveal(project_json: &Path) {
+    let Some(dir) = project_json.parent() else {
+        return;
     };
-    base.join("arcmin")
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    // Explorer reports failure even when it works, so the result is ignored.
+    let _ = std::process::Command::new(opener).arg(dir).spawn();
 }
 
 fn projects_dir() -> PathBuf {
@@ -91,7 +117,11 @@ pub fn list() -> Vec<ProjectEntry> {
             }
             let name = dir.file_name()?.to_str()?.to_owned();
             let has_save = dir.join("project_settings.arcmin-save.json").exists();
-            Some(ProjectEntry { name, json, has_save })
+            Some(ProjectEntry {
+                name,
+                json,
+                has_save,
+            })
         })
         .collect();
     entries.sort_by_key(|e| e.name.to_lowercase());
@@ -110,7 +140,11 @@ fn sanitize(name: &str) -> String {
         })
         .collect();
     let s = s.trim();
-    if s.is_empty() { "Untitled".to_owned() } else { s.to_owned() }
+    if s.is_empty() {
+        "Untitled".to_owned()
+    } else {
+        s.to_owned()
+    }
 }
 
 fn unique_dir(name: &str) -> PathBuf {
@@ -251,8 +285,8 @@ mod tests {
         };
         let home = std::env::temp_dir().join("arcmin-import-test-home");
         let _ = std::fs::remove_dir_all(&home);
-        // SAFETY: this is the only test that touches HOME.
-        unsafe { std::env::set_var("HOME", &home) };
+        // SAFETY: this is the only test that touches ARCMIN_DATA_DIR.
+        unsafe { std::env::set_var("ARCMIN_DATA_DIR", &home) };
 
         let src = Path::new(&src);
         let report = import(src).unwrap();
@@ -260,7 +294,9 @@ mod tests {
         assert!(!report.has_problems, "{}", report.summary);
         assert!(report.json.starts_with(&home));
 
-        let src_assets = std::fs::read_dir(src.parent().unwrap().join("assets")).unwrap().count();
+        let src_assets = std::fs::read_dir(src.parent().unwrap().join("assets"))
+            .unwrap()
+            .count();
         let dst_assets = std::fs::read_dir(report.json.parent().unwrap().join("assets"))
             .unwrap()
             .count();

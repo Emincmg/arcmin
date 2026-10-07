@@ -1,0 +1,112 @@
+name: Release
+
+# Pushing a tag like v1.0.0 builds macOS, Windows and Linux packages and creates a
+# DRAFT GitHub release with the gh CLI. Review it, then publish it from the Releases page
+# (or: gh release edit v1.0.0 --draft=false).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Check the tag matches Cargo.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare
+        run: |
+          CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          TAG_VERSION=${GITHUB_REF_NAME#v}
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $CARGO_VERSION" >&2
+            exit 1
+          fi
+          grep -q "^## $TAG_VERSION\$" CHANGELOG.md || { echo "CHANGELOG.md has no '## $TAG_VERSION' section" >&2; exit 1; }
+
+  macos:
+    needs: verify
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: scripts/package-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+
+  linux:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - name: Package
+        run: |
+          VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          DIR=arcmin-${VERSION}-linux-x86_64
+          mkdir -p "$DIR"
+          cp target/release/arcmin "$DIR/"
+          cp packaging/linux/arcmin.desktop "$DIR/"
+          cp assets/icon.png "$DIR/arcmin.png"
+          cp README.md CHANGELOG.md LICENSE "$DIR/"
+          tar czf "$DIR.tar.gz" "$DIR"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: "*.tar.gz"
+
+  windows:
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - name: Package
+        shell: bash
+        run: |
+          VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          DIR=arcmin-${VERSION}-windows-x86_64
+          mkdir -p "$DIR"
+          cp target/release/arcmin.exe "$DIR/"
+          cp README.md CHANGELOG.md LICENSE "$DIR/"
+          7z a "$DIR.zip" "$DIR"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: "*.zip"
+
+  publish:
+    needs: [macos, linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Release notes from CHANGELOG.md
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          awk -v v="$VERSION" '$0 == "## " v {found=1; next} /^## / {found=0} found' CHANGELOG.md > notes.md
+          test -s notes.md
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "arcmin $VERSION" \
+            --notes-file notes.md \
+            --verify-tag \
+            --draft

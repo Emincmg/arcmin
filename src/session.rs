@@ -157,13 +157,15 @@ impl Session {
             let arms = logic::branch_conditions(project, branch);
             let holds: Vec<bool> = arms
                 .iter()
-                .map(|arm| arm.script.as_deref().is_some_and(&truth))
+                .map(|arm| arm.script.as_deref().is_some_and(truth))
                 .collect();
-            let labels: Vec<Option<String>> = arms.iter().map(|arm| arm_label(&arm.output)).collect();
+            let labels: Vec<Option<String>> =
+                arms.iter().map(|arm| arm_label(&arm.output)).collect();
 
             if labels.iter().all(Option::is_none) {
                 // Router: one choice, offered only if some condition (or the else) can win.
-                let winnable = holds.iter().any(|&h| h) || arms.iter().any(|a| a.kind == CondKind::Else);
+                let winnable =
+                    holds.iter().any(|&h| h) || arms.iter().any(|a| a.kind == CondKind::Else);
                 if winnable {
                     choices.push(Choice {
                         label: rendered_label(&conn, rendered.get(&conn).and_then(Option::as_ref)),
@@ -181,7 +183,10 @@ impl Session {
                     _ => hold,
                 };
                 if available {
-                    choices.push(Choice { conn: arm.output.clone(), label });
+                    choices.push(Choice {
+                        conn: arm.output.clone(),
+                        label,
+                    });
                 }
             }
         }
@@ -215,14 +220,12 @@ impl Session {
                 })
                 .filter_map(|assets| assets.cover.as_ref())
                 .filter_map(|source| match source {
-                    AssetSource::ById { id } => id.resolve(project).ok().and_then(|asset| {
-                        match asset {
-                            arcweave_rust::project::Asset::Node { name, .. } => {
-                                Some(name.clone())
-                            }
+                    AssetSource::ById { id } => {
+                        id.resolve(project).ok().and_then(|asset| match asset {
+                            arcweave_rust::project::Asset::Node { name, .. } => Some(name.clone()),
                             arcweave_rust::project::Asset::Root { .. } => None,
-                        }
-                    }),
+                        })
+                    }
                     AssetSource::ByFile { .. } => None,
                 })
                 .collect()

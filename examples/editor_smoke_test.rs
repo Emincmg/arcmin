@@ -2,6 +2,9 @@
 // Arcweave export: opens the project, adds an element + connection, renames
 // the starting element, deletes a connection, saves, then reloads with
 // arcweave-rust's own Runtime to confirm the edited project still plays.
+// These examples pull in app modules by path and use only part of each.
+#![allow(dead_code)]
+
 use arcweave_rust::project::Project;
 
 #[path = "../src/assets.rs"]
@@ -42,7 +45,12 @@ fn main() {
 
     let old_start = project.starting_element.clone();
     let conn = model::add_connection(&mut project, &board, &old_start, &new_el);
-    println!("added connection {} ({} -> {})", conn.as_str(), old_start.as_str(), new_el.as_str());
+    println!(
+        "added connection {} ({} -> {})",
+        conn.as_str(),
+        old_start.as_str(),
+        new_el.as_str()
+    );
     assert!(project.elements[&old_start].outputs.contains(&conn));
 
     project.starting_element = new_el.clone();
@@ -55,7 +63,10 @@ fn main() {
 
     model::delete_element(&mut project, &board, &old_start);
     assert!(!project.elements.contains_key(&old_start));
-    println!("deleted old start element ok, {} elements left", project.elements.len());
+    println!(
+        "deleted old start element ok, {} elements left",
+        project.elements.len()
+    );
 
     let serialized = serde_json::to_string_pretty(&project).expect("serialize failed");
     println!("serialized {} bytes", serialized.len());
@@ -65,7 +76,10 @@ fn main() {
     println!("reloaded title: {:?}", runtime_session.title());
     println!("reloaded body: {}", runtime_session.body_text());
     let choices = runtime_session.choices();
-    println!("choices from new start: {} (expected 1, the fresh element -> rest of story is now unreachable)", choices.len());
+    println!(
+        "choices from new start: {} (expected 1, the fresh element -> rest of story is now unreachable)",
+        choices.len()
+    );
 
     println!("\nOK: editor mutations round-trip through arcweave-rust's own parser/runtime.");
 }

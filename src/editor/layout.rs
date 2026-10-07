@@ -96,7 +96,10 @@ impl LayoutStore {
 
         let column_of = |id: &String| depth.get(id.as_str()).copied().unwrap_or(0);
         let width_of = |id: &String| widths.get(id).copied().unwrap_or(DEFAULT_W);
-        let placing: Vec<&String> = ids.iter().filter(|id| missing.contains(id.as_str())).collect();
+        let placing: Vec<&String> = ids
+            .iter()
+            .filter(|id| missing.contains(id.as_str()))
+            .collect();
 
         let columns = placing.iter().map(|id| column_of(id)).max().unwrap_or(0) + 1;
         let mut column_width = vec![0.0_f32; columns];

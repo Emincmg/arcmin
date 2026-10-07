@@ -1,5 +1,8 @@
 // Headless sanity check against a real Arcweave export: opens the project,
 // walks a few choices, saves, reloads from the save, and prints what it sees.
+// These examples pull in app modules by path and use only part of each.
+#![allow(dead_code)]
+
 use arcweave_rust::project::Project;
 
 #[path = "../src/assets.rs"]
@@ -20,7 +23,9 @@ mod theme;
 use session::Session;
 
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: smoke_test <project_settings.json>");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: smoke_test <project_settings.json>");
     let project = Project::from_file(&path).expect("failed to parse project");
     println!("Project: {}", project.name);
     println!("Elements: {}", project.elements.len());

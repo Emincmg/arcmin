@@ -1,11 +1,22 @@
 [package]
 name = "arcmin"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
+# Let-chains (`if let … && …`) are stable from 1.88.
+rust-version = "1.88"
+license = "MIT"
+description = "A desktop editor and player for branching interactive stories, compatible with Arcweave exports"
+repository = "https://github.com/Emincmg/arcmin"
+readme = "README.md"
+keywords = ["interactive-fiction", "editor", "arcweave", "egui", "narrative"]
+categories = ["games", "gui"]
+# An application, not a library: don't publish it to crates.io by accident.
+publish = false
 
 [dependencies]
 anyhow = "1.0.104"
 arcweave-rust = "0.0.1"
+dirs = "7.0.0"
 eframe = "0.36.2"
 image = "0.25.10"
 ouroboros = "0.18.5"
@@ -17,3 +28,9 @@ uuid = { version = "1.27.0", features = ["v4"] }
 # Image decoding/resizing is far too slow unoptimised; keep our own code debuggable.
 [profile.dev.package."*"]
 opt-level = 3
+
+[profile.release]
+# Smaller, faster release binaries: link-time optimisation and no debug symbols.
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -85,9 +85,10 @@ fn row(ui: &mut egui::Ui, state: &mut EditorState, v: &logic::VarInfo, used: usi
             response.clone().on_hover_text(e);
         }
     } else if let Some(board) = &v.scope {
-        response
-            .clone()
-            .on_hover_text(format!("Only visible on the board \"{}\"", super::model::board_name(&state.project, board)));
+        response.clone().on_hover_text(format!(
+            "Only visible on the board \"{}\"",
+            super::model::board_name(&state.project, board)
+        ));
     }
     if response.lost_focus() {
         ui.data_mut(|d| d.remove::<String>(buffer_id));
@@ -121,7 +122,11 @@ fn row(ui: &mut egui::Ui, state: &mut EditorState, v: &logic::VarInfo, used: usi
             }
         });
     if new_kind != kind {
-        logic::set_variable_value(&mut state.project, &v.id, logic::convert_value(&v.value, new_kind));
+        logic::set_variable_value(
+            &mut state.project,
+            &v.id,
+            logic::convert_value(&v.value, new_kind),
+        );
         state.action();
     }
 
@@ -141,7 +146,11 @@ fn row(ui: &mut egui::Ui, state: &mut EditorState, v: &logic::VarInfo, used: usi
     }
 
     // Used
-    let text = if used == 0 { "unused".to_owned() } else { used.to_string() };
+    let text = if used == 0 {
+        "unused".to_owned()
+    } else {
+        used.to_string()
+    };
     ui.label(egui::RichText::new(text).weak());
 
     // Delete
@@ -149,7 +158,10 @@ fn row(ui: &mut egui::Ui, state: &mut EditorState, v: &logic::VarInfo, used: usi
         logic::delete_variable(&mut state.project, &v.id);
         if used > 0 {
             state.notice = Some((
-                format!("Deleted \"{}\", which scripts still mention {used} time(s). Undo to restore it.", v.name),
+                format!(
+                    "Deleted \"{}\", which scripts still mention {used} time(s). Undo to restore it.",
+                    v.name
+                ),
                 true,
             ));
         }

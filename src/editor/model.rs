@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use arcweave_rust::project::{
-    Board, BoardRef, Connection, ConnRef, Element, ElementRef, Project, SourceRef, TargetRef,
+    Board, BoardRef, ConnRef, Connection, Element, ElementRef, Project, SourceRef, TargetRef,
 };
 
 pub(super) fn new_id() -> String {
@@ -135,10 +135,10 @@ pub fn delete_element(project: &mut Project, board: &BoardRef, element: &Element
     if let Some(Board::Node { elements, .. }) = project.boards.get_mut(board) {
         elements.retain(|e| e != element);
     }
-    if &project.starting_element == element {
-        if let Some(other) = project.elements.keys().next().cloned() {
-            project.starting_element = other;
-        }
+    if &project.starting_element == element
+        && let Some(other) = project.elements.keys().next().cloned()
+    {
+        project.starting_element = other;
     }
 }
 
@@ -181,7 +181,9 @@ pub fn add_connection(
 /// on its own, so deleting one removes the condition (and the whole branch when it
 /// was the `if`).
 pub fn delete_connection(project: &mut Project, board: &BoardRef, conn: &ConnRef) {
-    if let Some(SourceRef::Condition(cond)) = project.connections.get(conn).map(|c| c.source.clone()) {
+    if let Some(SourceRef::Condition(cond)) =
+        project.connections.get(conn).map(|c| c.source.clone())
+    {
         super::logic::delete_condition(project, board, &cond);
         return;
     }
@@ -190,12 +192,11 @@ pub fn delete_connection(project: &mut Project, board: &BoardRef, conn: &ConnRef
 
 /// Removes the connection and its bookkeeping, without any cascade.
 pub(super) fn remove_connection_raw(project: &mut Project, board: &BoardRef, conn: &ConnRef) {
-    if let Some(connection) = project.connections.remove(conn) {
-        if let SourceRef::Element(source) = &connection.source {
-            if let Some(element) = project.elements.get_mut(source) {
-                element.outputs.retain(|c| c != conn);
-            }
-        }
+    if let Some(connection) = project.connections.remove(conn)
+        && let SourceRef::Element(source) = &connection.source
+        && let Some(element) = project.elements.get_mut(source)
+    {
+        element.outputs.retain(|c| c != conn);
     }
     if let Some(Board::Node { connections, .. }) = project.boards.get_mut(board) {
         connections.retain(|c| c != conn);

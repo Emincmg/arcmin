@@ -48,9 +48,13 @@ pub fn apply(ctx: &egui::Context) {
 
 /// Filled accent button for the main action in a group.
 pub fn primary(text: &str) -> egui::Button<'static> {
-    egui::Button::new(RichText::new(text.to_owned()).color(Color32::WHITE).strong())
-        .fill(ACCENT)
-        .stroke(Stroke::NONE)
+    egui::Button::new(
+        RichText::new(text.to_owned())
+            .color(Color32::WHITE)
+            .strong(),
+    )
+    .fill(ACCENT)
+    .stroke(Stroke::NONE)
 }
 
 /// Filled red button for destructive actions.
