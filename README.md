@@ -9,7 +9,8 @@ keep editing it here, and play it without any service or size limit.
 ## Features
 
 - **Graph editor** – elements, connections and branches on a pan/zoom canvas. Drag from a node's
-  green handle to connect, drag the corner to resize, right-click for actions.
+  green handle to connect, drag the corner to resize, right-click for actions. Connections are
+  curves with arrowheads that leave and enter the facing card sides and route around other cards.
 - **Variables and scripts** – global variables (integer, float, boolean, string) and Arcscript
   statements in element text. Conditions are syntax-checked as you type.
 - **Branches** – `if` / `else if` / `else`. With no labels on its arms a branch routes
@@ -34,7 +35,7 @@ Download the build for your system from the [releases page](https://github.com/E
 | Windows | `arcmin-<version>-windows-x86_64.zip`  | SmartScreen may warn: **More info → Run anyway**. |
 | Linux   | `arcmin-<version>-linux-x86_64.tar.gz` | Needs OpenGL/Vulkan and, for file dialogs, `xdg-desktop-portal`. |
 
-Windows and Linux builds are new in 1.0 – please report anything that misbehaves.
+Windows and Linux builds are newer than the macOS one – please report anything that misbehaves.
 
 ### Build from source
 
@@ -74,6 +75,19 @@ Set `ARCMIN_DATA_DIR` to use a different folder.
 | Undo / redo | `Cmd`/`Ctrl`+`Z`, `Cmd`/`Ctrl`+`Shift`+`Z` |
 | More actions | Right-click the canvas, a node, a branch or a connection |
 
+**Covers.** Right-click a card → *Cover Image* to pick one of the project's images, or *Upload
+Image…* (also in the Properties panel) to add a new one. Uploads are copied into the project's
+`assets/` folder; uploading the same file again reuses it.
+
+**Auto Arrange.** The toolbar button lays the board out by title: `2.3` (or `2-3`) is day 2,
+event 3 – days become rows, events columns. Variants such as `3.3a` / `3.3b` sit to the right of
+`3.3`, stacked, and never move the day's line. Branches follow the element leading into them;
+cards without a `day.event` title go in a block below the grid. It is one undo step.
+
+**Export for Godot.** The toolbar's *Export for Godot…* writes a `.zip` with `project.json` and,
+optionally, the `assets/` folder, in the layout Arcweave's Godot plugin expects. It has not yet
+been tried against a real Godot project.
+
 **Writing text.** Element text and choice labels are plain text with a little markup:
 
 ```
@@ -101,8 +115,8 @@ arcmin's file format *is* the Arcweave export format. Saving merges your changes
 file, so fields arcmin doesn't edit (notes, jumpers, components, attributes, …) are preserved.
 
 Not editable yet: notes, jumpers, components and attributes, board-scoped variables, switching
-between several boards (the main board is edited), importing images into an existing project,
-and deleting or renaming projects from the app.
+between several boards (the main board is edited), bulk-importing images into an existing
+project (single images can be uploaded as covers), and deleting or renaming projects from the app.
 
 ## Development
 
