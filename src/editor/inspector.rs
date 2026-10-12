@@ -39,10 +39,28 @@ pub fn show(ui: &mut egui::Ui, state: &mut EditorState) {
         });
 }
 
+/// The text to show in an edit field. While the user types, the stored value is
+/// a lossy rendering of the text (trailing spaces and blank lines are trimmed),
+/// so re-deriving the field from it every frame would eat the space just typed.
+/// `buffer` is what the field held after the last edit and which stored value
+/// it produced: while the stored value is still that one, keep the raw text.
+fn edit_text(
+    buffer: Option<(String, String)>,
+    stored: &str,
+    derive: impl FnOnce() -> String,
+) -> String {
+    match buffer {
+        Some((text, produced)) if produced == stored => text,
+        _ => derive(),
+    }
+}
+
 /// A multi-line field for content that may contain `$ ` script lines, with a live
 /// syntax check underneath. Returns the new HTML when the text was edited.
-fn content_editor(ui: &mut egui::Ui, html: &str, rows: usize) -> Option<String> {
-    let mut text = content::html_to_editor(html);
+fn content_editor(ui: &mut egui::Ui, key: &str, html: &str, rows: usize) -> Option<String> {
+    let buf_id = ui.id().with(("arcmin_edit_buffer", key));
+    let buffer = ui.data_mut(|d| d.get_temp::<(String, String)>(buf_id));
+    let mut text = edit_text(buffer, html, || content::html_to_editor(html));
     let changed = ui
         .add(
             egui::TextEdit::multiline(&mut text)
@@ -51,6 +69,9 @@ fn content_editor(ui: &mut egui::Ui, html: &str, rows: usize) -> Option<String> 
         )
         .changed();
     let new_html = changed.then(|| content::editor_to_html(&text));
+    if let Some(new_html) = &new_html {
+        ui.data_mut(|d| d.insert_temp(buf_id, (text, new_html.clone())));
+    }
     if let Some(error) = logic::validate_content(new_html.as_deref().unwrap_or(html)) {
         ui.colored_label(ERROR, error);
     }
@@ -64,17 +85,27 @@ fn show_element(ui: &mut egui::Ui, state: &mut EditorState, id: &ElementRef) {
     let is_start = &state.project.starting_element == id;
 
     ui.label("Title");
-    let mut title = content::strip_html(element.title.as_deref().unwrap_or_default());
+    let stored_title = element.title.clone().unwrap_or_default();
+    let title_buf = ui.id().with(("arcmin_title_buffer", id.as_str()));
+    let buffer = ui.data_mut(|d| d.get_temp::<(String, String)>(title_buf));
+    let mut title = edit_text(buffer, &stored_title, || content::strip_html(&stored_title));
     if ui.text_edit_singleline(&mut title).changed() {
+        let html = model::wrap_html(&title);
+        ui.data_mut(|d| d.insert_temp(title_buf, (title, html.clone())));
         if let Some(e) = state.project.elements.get_mut(id) {
-            e.title = Some(model::wrap_html(&title));
+            e.title = Some(html);
         }
         state.changed(format!("title:{}", id.as_str()));
     }
 
     ui.add_space(8.0);
     ui.label("Text");
-    if let Some(html) = content_editor(ui, element.content.as_deref().unwrap_or("<p></p>"), 12) {
+    if let Some(html) = content_editor(
+        ui,
+        &format!("body:{}", id.as_str()),
+        element.content.as_deref().unwrap_or("<p></p>"),
+        12,
+    ) {
         if let Some(e) = state.project.elements.get_mut(id) {
             e.content = Some(html);
         }
@@ -126,7 +157,12 @@ fn show_connection(ui: &mut egui::Ui, state: &mut EditorState, id: &ConnRef) {
     }
 
     ui.label("Choice text (button label, empty = \"Continue\")");
-    if let Some(html) = content_editor(ui, conn.label.as_deref().unwrap_or("<p></p>"), 3) {
+    if let Some(html) = content_editor(
+        ui,
+        &format!("label:{}", id.as_str()),
+        conn.label.as_deref().unwrap_or("<p></p>"),
+        3,
+    ) {
         if let Some(c) = state.project.connections.get_mut(id) {
             c.label = (html != "<p></p>").then_some(html);
         }
@@ -241,7 +277,9 @@ fn show_branch(ui: &mut egui::Ui, state: &mut EditorState, id: &BranchRef) {
                 .get(&cond.output)
                 .and_then(|c| c.label.clone())
                 .unwrap_or_else(|| "<p></p>".to_owned());
-            if let Some(html) = content_editor(ui, &current, 1) {
+            if let Some(html) =
+                content_editor(ui, &format!("arm:{}", cond.id.as_str()), &current, 1)
+            {
                 if let Some(c) = state.project.connections.get_mut(&cond.output) {
                     c.label = (html != "<p></p>").then_some(html);
                 }
@@ -369,11 +407,31 @@ fn show_cover_picker(ui: &mut egui::Ui, state: &mut EditorState, id: &ElementRef
             }
         });
 
+    if ui.button("Upload image…").clicked() {
+        state.upload_cover(id);
+    }
+
     if let Some(choice) = chosen {
-        match choice {
-            Some(asset_id) => state.covers.insert(id.as_str().to_owned(), asset_id),
-            None => state.covers.remove(id.as_str()),
-        };
-        state.action();
+        state.set_cover(id, choice);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_trailing_space_survives_until_the_stored_value_changes_elsewhere() {
+        // User typed "Hello " -> stored html is "<p>Hello</p>".
+        let buffer = Some(("Hello ".to_owned(), "<p>Hello</p>".to_owned()));
+        let kept = edit_text(buffer.clone(), "<p>Hello</p>", || "Hello".to_owned());
+        assert_eq!(kept, "Hello ", "the space must not be trimmed away");
+
+        // Undo (or selecting other content) changed the stored value: re-derive.
+        let fresh = edit_text(buffer, "<p>Hi</p>", || "Hi".to_owned());
+        assert_eq!(fresh, "Hi");
+
+        // No buffer yet: derive.
+        assert_eq!(edit_text(None, "<p>x</p>", || "x".to_owned()), "x");
     }
 }

@@ -2,9 +2,10 @@
 //!
 //! Every method that changes the project records exactly one undo step.
 
-use arcweave_rust::project::{BranchRef, CondRef, ConnRef, ElementRef};
+use arcweave_rust::project::{Asset, AssetRef, Board, BranchRef, CondRef, ConnRef, ElementRef};
 use eframe::egui;
 
+use super::layout::ArrangeNode;
 use super::logic::{self, CondKind};
 use super::{EditorState, model};
 
@@ -92,6 +93,190 @@ impl EditorState {
         let conn = model::add_connection(&mut self.project, &self.board, from, &id);
         self.select_connection(conn);
         self.action();
+    }
+
+    /// Lays the whole board out as days (rows) x events (columns) by title.
+    pub fn arrange_by_day(&mut self) {
+        let Some(Board::Node {
+            elements,
+            branches,
+            connections,
+            ..
+        }) = self.project.boards.get(&self.board)
+        else {
+            return;
+        };
+        let mut nodes: Vec<ArrangeNode> = Vec::new();
+        for id in elements {
+            let title = self
+                .project
+                .elements
+                .get(id)
+                .and_then(|e| e.title.as_deref())
+                .map(crate::content::strip_html)
+                .unwrap_or_default();
+            nodes.push(ArrangeNode {
+                id: id.as_str().to_owned(),
+                title,
+                branch: false,
+                size: self
+                    .layout
+                    .size(id.as_str())
+                    .unwrap_or((super::NODE_W, super::NODE_H)),
+            });
+        }
+        for id in branches {
+            let rows = logic::branch_conditions(&self.project, id).len();
+            nodes.push(ArrangeNode {
+                id: id.as_str().to_owned(),
+                title: String::new(),
+                branch: true,
+                size: (super::canvas::BRANCH_W, super::canvas::branch_height(rows)),
+            });
+        }
+        let edges = super::graph_edges(&self.project, connections);
+        let loose = self.layout.arrange_by_day(&nodes, &edges);
+        self.pan = egui::Vec2::ZERO;
+        self.zoom = 1.0;
+        self.notice = (loose > 0).then(|| {
+            (
+                format!("{loose} card(s) have no day.event title (like 2.3) and were put below the grid."),
+                false,
+            )
+        });
+        self.action();
+    }
+
+    /// Sets (or with `None` clears) an element's cover image.
+    pub fn set_cover(&mut self, id: &ElementRef, asset_id: Option<String>) {
+        match asset_id {
+            Some(asset_id) => self.covers.insert(id.as_str().to_owned(), asset_id),
+            None => self.covers.remove(id.as_str()),
+        };
+        self.action();
+    }
+
+    /// Saves, then writes the Arcweave-style Godot bundle (`project.json` +
+    /// optional `assets/`) to a zip the author picks.
+    pub fn export_for_godot(&mut self) {
+        let default_name = format!("{}-godot.zip", self.project.name.trim().replace('/', "-"));
+        let Some(dest) = rfd::FileDialog::new()
+            .add_filter("Zip archive", &["zip"])
+            .set_title("Export for Godot")
+            .set_file_name(default_name)
+            .save_file()
+        else {
+            return;
+        };
+        let include_assets = rfd::MessageDialog::new()
+            .set_title("Include assets?")
+            .set_description(
+                "Add the project's images to the zip? Choose No for a data-only export.",
+            )
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .show()
+            == rfd::MessageDialogResult::Yes;
+
+        // Export what is on disk, so make sure that is what is on screen.
+        self.save();
+        self.notice = match super::export::godot_zip(&self.project_path, &dest, include_assets) {
+            Ok(report) => Some((
+                format!(
+                    "Exported for Godot: project.json{} -> {}",
+                    if include_assets {
+                        format!(" + {} asset file(s)", report.assets)
+                    } else {
+                        String::new()
+                    },
+                    dest.display()
+                ),
+                false,
+            )),
+            Err(e) => Some((e, true)),
+        };
+    }
+
+    /// Asks for an image file, copies it into the project's `assets/` folder,
+    /// registers it and makes it this element's cover.
+    pub fn upload_cover(&mut self, id: &ElementRef) {
+        let Some(src) = rfd::FileDialog::new()
+            .add_filter("Image", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
+            .set_title("Choose a cover image")
+            .pick_file()
+        else {
+            return;
+        };
+        match self.import_image(&src) {
+            Ok(asset_id) => {
+                self.set_cover(id, Some(asset_id));
+                self.notice = None;
+            }
+            Err(e) => self.notice = Some((e, true)),
+        }
+    }
+
+    /// Copies `src` into `<project>/assets/` and returns its asset id. A file
+    /// already in the project (same name and size) is reused, not duplicated.
+    pub(super) fn import_image(&mut self, src: &std::path::Path) -> Result<String, String> {
+        image::image_dimensions(src).map_err(|e| format!("Not a readable image: {e}"))?;
+        let dir = self
+            .project_path
+            .parent()
+            .ok_or("The project has no folder.")?
+            .join("assets");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let original = src
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or("Unusable file name.")?
+            .to_owned();
+        let src_len = std::fs::metadata(src).map_err(|e| e.to_string())?.len();
+
+        let existing = |name: &str| {
+            self.project.assets.iter().find_map(|(id, a)| match a {
+                Asset::Node { name: n, .. } if n == name => Some(id.as_str().to_owned()),
+                _ => None,
+            })
+        };
+        let (stem, ext) = match original.rsplit_once('.') {
+            Some((s, e)) => (s.to_owned(), format!(".{e}")),
+            None => (original.clone(), String::new()),
+        };
+        let mut name = original.clone();
+        let mut n = 2;
+        loop {
+            let target = dir.join(&name);
+            match std::fs::metadata(&target) {
+                Err(_) => break,
+                Ok(m) if m.len() == src_len && existing(&name).is_some() => {
+                    return Ok(existing(&name).unwrap_or_default());
+                }
+                Ok(_) => {
+                    name = format!("{stem} ({n}){ext}");
+                    n += 1;
+                }
+            }
+        }
+        let target = dir.join(&name);
+        std::fs::copy(src, &target).map_err(|e| format!("Could not copy the image: {e}"))?;
+
+        let id = model::new_id();
+        let asset_ref = AssetRef::from(id.as_str());
+        self.project.assets.insert(
+            asset_ref.clone(),
+            Asset::Node {
+                name: name.clone(),
+                ty: "image".to_owned(),
+            },
+        );
+        for asset in self.project.assets.values_mut() {
+            if let Asset::Root { children, .. } = asset {
+                children.push(asset_ref.clone());
+                break;
+            }
+        }
+        self.assets.add(name, target);
+        Ok(id)
     }
 
     pub fn duplicate_element(&mut self, id: &ElementRef) {

@@ -15,7 +15,12 @@ keep editing it here, and play it without any service or size limit.
 - **Branches** – `if` / `else if` / `else`. With no labels on its arms a branch routes
   automatically; give arms a *choice label* and the player is offered each labelled arm whose
   condition is true.
-- **Covers** – element cover images from the project's assets, shown on nodes and in play mode.
+- **Covers** – element cover images, picked from the project's assets or uploaded from right-click
+  → *Cover Image*; shown on nodes and in play mode.
+- **Auto Arrange** – titles like `2.3` mean day 2, event 3: days become rows, events columns, and
+  `3.3a` / `3.3b` variants sit beside `3.3`.
+- **Export for Godot** – a `.zip` with `project.json` (and optionally the images) for Arcweave's
+  Godot plugin.
 - **Undo / redo**, autosave every 5 minutes, atomic writes.
 - **Play mode** with saved progress.
 

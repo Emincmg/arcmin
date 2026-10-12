@@ -16,6 +16,11 @@ const BRANCH_HEADER: f32 = 24.0;
 const BRANCH_ROW: f32 = 26.0;
 const AMBER: egui::Color32 = egui::Color32::from_rgb(240, 190, 90);
 
+/// World-space height of a branch card with `rows` conditions.
+pub fn branch_height(rows: usize) -> f32 {
+    BRANCH_HEADER + rows as f32 * BRANCH_ROW + 6.0
+}
+
 /// What a dragged connection was dropped on.
 enum Drop {
     Element(ElementRef),
@@ -59,7 +64,7 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
     for id in &branch_ids {
         let conds = logic::branch_conditions(&state.project, id);
         let pos = state.layout.get_or_insert(id.as_str(), (40.0, 40.0));
-        let height = BRANCH_HEADER + conds.len() as f32 * BRANCH_ROW + 6.0;
+        let height = branch_height(conds.len());
         let rect =
             egui::Rect::from_min_size(to_screen(state, pos), egui::vec2(BRANCH_W, height) * z);
         for (i, cond) in conds.iter().enumerate() {
@@ -99,25 +104,84 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
     let painter = ui.painter_at(canvas_rect);
 
     // ---- connections ----------------------------------------------------
+    // Each connection leaves/enters the card sides that face each other, so a
+    // vertical stack of rows doesn't force lines through the cards between.
+    let all_rects: Vec<egui::Rect> = rects
+        .values()
+        .chain(branch_rects.values())
+        .copied()
+        .collect();
     let mut segments: Vec<(arcweave_rust::project::ConnRef, egui::Pos2, egui::Pos2)> = Vec::new();
     if let Some(Board::Node { connections, .. }) = state.project.boards.get(&state.board) {
         for conn_ref in connections {
             let Some(conn) = state.project.connections.get(conn_ref) else {
                 continue;
             };
-            let p0 = match &conn.source {
-                SourceRef::Element(e) => rects.get(e).map(|r| r.right_center()),
-                SourceRef::Condition(c) => cond_handles.get(c).copied(),
-                SourceRef::Jumper(_) => None,
+            let src_rect = match &conn.source {
+                SourceRef::Element(e) => rects.get(e).copied(),
+                _ => None,
             };
-            let p1 = match &conn.target {
-                TargetRef::Element(e) => rects.get(e).map(|r| r.left_center()),
-                TargetRef::Branch(b) => branch_rects.get(b).map(|r| r.left_center()),
+            let dst_rect = match &conn.target {
+                TargetRef::Element(e) => rects.get(e).copied(),
+                TargetRef::Branch(b) => branch_rects.get(b).copied(),
                 TargetRef::Jumper(_) => None,
             };
-            let (Some(p0), Some(p1)) = (p0, p1) else {
+            let Some(dst_rect) = dst_rect else {
                 continue;
             };
+            let cond_handle = match &conn.source {
+                SourceRef::Condition(c) => cond_handles.get(c).copied(),
+                _ => None,
+            };
+            let (from_sides, src_for_skip) = match (src_rect, cond_handle) {
+                (Some(sr), _) => (sides(sr).to_vec(), Some(sr)),
+                (None, Some(h)) => (vec![(h, egui::vec2(1.0, 0.0))], None),
+                _ => continue,
+            };
+            let to_sides = sides(dst_rect);
+            let default = match (src_rect, cond_handle) {
+                (Some(sr), _) => anchors(sr, dst_rect),
+                (_, Some(h)) => (
+                    (h, egui::vec2(1.0, 0.0)),
+                    anchors(egui::Rect::from_min_max(h, h), dst_rect).1,
+                ),
+                _ => continue,
+            };
+            let blocked = |pts: &[egui::Pos2]| -> usize {
+                all_rects
+                    .iter()
+                    .map(|r| {
+                        let own = *r == dst_rect
+                            || Some(*r) == src_for_skip
+                            || cond_handle.is_some_and(|h| r.expand(4.0).contains(h));
+                        // Other cards keep a gap; the endpoint cards only
+                        // forbid cutting through their interior.
+                        let r = if own {
+                            r.shrink(3.0)
+                        } else {
+                            r.expand(6.0 * z.min(1.0))
+                        };
+                        pts.iter().filter(|p| r.contains(**p)).count()
+                    })
+                    .sum()
+            };
+            let ((p0, d0), (mut p1, mut d1)) = default;
+            let mut pts = bezier_points(p0, d0, p1, d1, z);
+            if blocked(&pts) > 0 {
+                // Try every side pairing and keep the least obstructed, shortest curve.
+                let mut best = (blocked(&pts), curve_len(&pts));
+                for &(a, da) in &from_sides {
+                    for &(b, db) in &to_sides {
+                        let cand = bezier_points(a, da, b, db, z);
+                        let score = (blocked(&cand), curve_len(&cand));
+                        if score.0 < best.0 || (score.0 == best.0 && score.1 < best.1 - 1.0) {
+                            best = score;
+                            (p1, d1) = (b, db);
+                            pts = cand;
+                        }
+                    }
+                }
+            }
             let selected = state.selected_conn.as_ref() == Some(conn_ref);
             let from_condition = matches!(conn.source, SourceRef::Condition(_));
             let color = if selected {
@@ -127,20 +191,31 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
             } else {
                 egui::Color32::LIGHT_BLUE
             };
-            painter.line_segment(
-                [p0, p1],
-                egui::Stroke::new(if selected { 3.0 } else { 2.0 }, color),
-            );
-            segments.push((conn_ref.clone(), p0, p1));
+            let stroke = egui::Stroke::new(if selected { 3.0 } else { 2.0 }, color);
+            painter.add(egui::Shape::line(pts.clone(), stroke));
+            // Arrowhead pointing into the target card.
+            let size = 9.0 * z.clamp(0.6, 1.4);
+            let back = -d1;
+            let side = egui::vec2(-back.y, back.x);
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    p1,
+                    p1 + back * size + side * (size * 0.5),
+                    p1 + back * size - side * (size * 0.5),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+            for w in pts.windows(2) {
+                segments.push((conn_ref.clone(), w[0], w[1]));
+            }
         }
     }
     if bg_response.clicked()
         && let Some(pos) = bg_response.interact_pointer_pos()
-        && let Some((conn_ref, _, _)) = segments
-            .iter()
-            .find(|(_, a, b)| dist_to_segment(pos, *a, *b) < 6.0)
+        && let Some(conn_ref) = connection_at(&segments, pos, 6.0)
     {
-        state.select_connection(conn_ref.clone());
+        state.select_connection(conn_ref);
     }
     state.canvas_segments = segments;
 
@@ -454,6 +529,72 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) {
     {
         state.delete_selection();
     }
+}
+
+/// Anchor points and outward directions on the sides of `src` and `dst` that
+/// face each other.
+fn anchors(
+    src: egui::Rect,
+    dst: egui::Rect,
+) -> ((egui::Pos2, egui::Vec2), (egui::Pos2, egui::Vec2)) {
+    let (right, left) = (egui::vec2(1.0, 0.0), egui::vec2(-1.0, 0.0));
+    let (down, up) = (egui::vec2(0.0, 1.0), egui::vec2(0.0, -1.0));
+    if src.right() <= dst.left() {
+        ((src.right_center(), right), (dst.left_center(), left))
+    } else if src.bottom() <= dst.top() {
+        // Backwards but on a lower row: drop out of the bottom edge instead of
+        // looping through our own card.
+        ((src.center_bottom(), down), (dst.center_top(), up))
+    } else if src.top() >= dst.bottom() {
+        ((src.center_top(), up), (dst.center_bottom(), down))
+    } else if src.left() >= dst.right() {
+        ((src.left_center(), left), (dst.right_center(), right))
+    } else {
+        // Overlapping cards: fall back to the classic right -> left.
+        ((src.right_center(), right), (dst.left_center(), left))
+    }
+}
+
+fn sides(r: egui::Rect) -> [(egui::Pos2, egui::Vec2); 4] {
+    [
+        (r.right_center(), egui::vec2(1.0, 0.0)),
+        (r.left_center(), egui::vec2(-1.0, 0.0)),
+        (r.center_bottom(), egui::vec2(0.0, 1.0)),
+        (r.center_top(), egui::vec2(0.0, -1.0)),
+    ]
+}
+
+fn curve_len(pts: &[egui::Pos2]) -> f32 {
+    pts.windows(2).map(|w| (w[1] - w[0]).length()).sum()
+}
+
+/// Sampled cubic curve leaving `p0` along `d0` and arriving at `p1` against `d1`.
+fn bezier_points(
+    p0: egui::Pos2,
+    d0: egui::Vec2,
+    p1: egui::Pos2,
+    d1: egui::Vec2,
+    zoom: f32,
+) -> Vec<egui::Pos2> {
+    // Both ends on the same side (a "C" bracket between stacked cards) hugs
+    // the cards instead of swinging out proportionally to the distance.
+    let k = if d0 == d1 {
+        50.0 * zoom
+    } else {
+        ((p1 - p0).length() * 0.45).clamp(30.0 * zoom, 260.0 * zoom)
+    };
+    let (c0, c1) = (p0 + d0 * k, p1 + d1 * k);
+    (0..=24)
+        .map(|i| {
+            let t = i as f32 / 24.0;
+            let u = 1.0 - t;
+            let w = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
+            egui::pos2(
+                w[0] * p0.x + w[1] * c0.x + w[2] * c1.x + w[3] * p1.x,
+                w[0] * p0.y + w[1] * c0.y + w[2] * c1.y + w[3] * p1.y,
+            )
+        })
+        .collect()
 }
 
 fn dist_to_segment(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {

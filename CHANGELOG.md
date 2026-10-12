@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0
+
+New editor tools and a Godot export; existing projects open unchanged.
+
+### Editor
+- **Auto Arrange** button: lays the board out by title. `2.3` (or `2-3`) is day 2, event 3: days become rows, events become columns. Variants such as `3.3a` / `3.3b` sit to the right of `3.3`, stacked, and never move the day's line. Branches follow the element that leads into them; cards without a `day.event` title go in a block below the grid. One undo step.
+- **Smarter connections**: lines are curves with arrowheads, leave and enter the card sides that face each other, and route around other cards instead of running underneath them.
+- **Cover images**: right-click a card → *Cover Image* to pick one, and *Upload Image…* (also in the Properties panel) to add a new image. Uploads are copied into the project's `assets/` folder; re-uploading the same file reuses it.
+- **Export for Godot…**: writes a `.zip` with `project.json` and, optionally, the `assets/` folder, in the layout Arcweave's own Godot export uses. Not yet tried against a real Godot project.
+
+### Fixes
+- Typing a space at the end of a card's title, text, choice label or branch label no longer gets swallowed.
+
+### Under the hood
+- New dependency: `zip`.
+
 ## 1.0.0
 
 First release.

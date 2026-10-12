@@ -6,6 +6,7 @@ use eframe::egui;
 use super::EditorState;
 use super::canvas::connection_at;
 use super::logic::CondKind;
+use crate::covers;
 
 pub fn element_menu(response: &egui::Response, state: &mut EditorState, id: &ElementRef) {
     response.context_menu(|ui| {
@@ -25,6 +26,27 @@ pub fn element_menu(response: &egui::Response, state: &mut EditorState, id: &Ele
             state.select_branch(branch);
             ui.close();
         }
+        ui.menu_button("Cover Image", |ui| {
+            let current = state.covers.get(id.as_str()).cloned();
+            let mut chosen: Option<Option<String>> = None;
+            egui::ScrollArea::vertical()
+                .max_height(320.0)
+                .show(ui, |ui| {
+                    if ui.selectable_label(current.is_none(), "None").clicked() {
+                        chosen = Some(None);
+                    }
+                    for (asset_id, name) in covers::choices(&state.project) {
+                        let selected = current.as_deref() == Some(asset_id.as_str());
+                        if ui.selectable_label(selected, name).clicked() {
+                            chosen = Some(Some(asset_id));
+                        }
+                    }
+                });
+            if let Some(choice) = chosen {
+                state.set_cover(id, choice);
+                ui.close();
+            }
+        });
         ui.separator();
         let is_start = &state.project.starting_element == id;
         if ui

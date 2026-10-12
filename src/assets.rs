@@ -33,6 +33,11 @@ impl AssetIndex {
         }
     }
 
+    /// Makes a file added after startup resolvable by name.
+    pub fn add(&mut self, filename: String, path: PathBuf) {
+        self.by_filename.insert(filename, path);
+    }
+
     pub fn resolve(&self, filename: &str) -> Option<&Path> {
         self.by_filename.get(filename).map(PathBuf::as_path)
     }

@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod canvas;
 pub mod context_menu;
+mod export;
 pub mod history;
 pub mod inspector;
 pub mod layout;
@@ -33,6 +34,29 @@ const NODE_MAX: (f32, f32) = (700.0, 600.0);
 const AUTOSAVE_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// "Cmd" on macOS, "Ctrl" elsewhere (egui maps `Modifiers::COMMAND` the same way).
+/// Node-to-node edges of a board; a condition's edge starts at its branch.
+fn graph_edges(project: &Project, connections: &[ConnRef]) -> Vec<(String, String)> {
+    connections
+        .iter()
+        .filter_map(|c| project.connections.get(c))
+        .filter_map(|c| {
+            let from = match &c.source {
+                SourceRef::Element(e) => e.as_str().to_owned(),
+                SourceRef::Condition(cond) => logic::branch_of_condition(project, cond)?
+                    .as_str()
+                    .to_owned(),
+                SourceRef::Jumper(_) => return None,
+            };
+            let to = match &c.target {
+                TargetRef::Element(e) => e.as_str().to_owned(),
+                TargetRef::Branch(b) => b.as_str().to_owned(),
+                TargetRef::Jumper(_) => return None,
+            };
+            Some((from, to))
+        })
+        .collect()
+}
+
 fn modifier_name() -> &'static str {
     if cfg!(target_os = "macos") {
         "Cmd"
@@ -94,25 +118,7 @@ impl EditorState {
         {
             let mut ids: Vec<String> = elements.iter().map(|e| e.as_str().to_owned()).collect();
             ids.extend(branches.iter().map(|b| b.as_str().to_owned()));
-            let edges: Vec<(String, String)> = connections
-                .iter()
-                .filter_map(|c| project.connections.get(c))
-                .filter_map(|c| {
-                    let from = match &c.source {
-                        SourceRef::Element(e) => e.as_str().to_owned(),
-                        SourceRef::Condition(cond) => logic::branch_of_condition(&project, cond)?
-                            .as_str()
-                            .to_owned(),
-                        SourceRef::Jumper(_) => return None,
-                    };
-                    let to = match &c.target {
-                        TargetRef::Element(e) => e.as_str().to_owned(),
-                        TargetRef::Branch(b) => b.as_str().to_owned(),
-                        TargetRef::Jumper(_) => return None,
-                    };
-                    Some((from, to))
-                })
-                .collect();
+            let edges = graph_edges(&project, connections);
             let widths: HashMap<String, f32> = branches
                 .iter()
                 .map(|b| (b.as_str().to_owned(), canvas::BRANCH_W))
@@ -278,9 +284,27 @@ pub fn show(ui: &mut egui::Ui, ctx: &egui::Context, state: &mut EditorState) -> 
         if ui.button("Variables").clicked() {
             state.show_variables = !state.show_variables;
         }
+        if ui
+            .button("Auto Arrange")
+            .on_hover_text(
+                "Rows are days, columns are events, by title: 2.3 = day 2, event 3.\n3.3a / 3.3b go to the right of 3.3, stacked.",
+            )
+            .clicked()
+        {
+            state.arrange_by_day();
+        }
         ui.separator();
         if ui.button("Save").clicked() {
             state.save();
+        }
+        if ui
+            .button("Export for Godot…")
+            .on_hover_text(
+                "Writes a .zip with project.json (and the images) for Arcweave's Godot plugin.",
+            )
+            .clicked()
+        {
+            state.export_for_godot();
         }
         if ui
             .add_enabled(state.history.can_undo(), egui::Button::new("Undo"))
@@ -356,6 +380,53 @@ mod tests {
 
     fn element_count(s: &EditorState) -> usize {
         s.project.elements.len()
+    }
+
+    #[test]
+    fn imported_image_is_copied_registered_reused_and_saved() {
+        let mut s = open_new();
+        let src_dir = std::env::temp_dir().join(format!("arcmin-img-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let src = src_dir.join("pic.png");
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([200, 30, 30, 255]))
+            .save(&src)
+            .unwrap();
+
+        let first = s.import_image(&src).unwrap();
+        let folder = s.project_path.parent().unwrap().to_path_buf();
+        assert!(
+            folder.join("assets/pic.png").is_file(),
+            "copied into assets/"
+        );
+        assert_eq!(
+            covers::file_name(&s.project, &first).as_deref(),
+            Some("pic.png")
+        );
+        assert!(s.assets.resolve("pic.png").is_some(), "resolvable at once");
+
+        // Importing the same file again reuses the asset instead of duplicating it.
+        assert_eq!(s.import_image(&src).unwrap(), first);
+        // A different image under the same name gets its own file and asset.
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 0, 255, 255]))
+            .save(&src)
+            .unwrap();
+        let second = s.import_image(&src).unwrap();
+        assert_ne!(second, first);
+        assert!(folder.join("assets/pic (2).png").is_file());
+
+        // Not an image: refused, nothing registered.
+        let junk = src_dir.join("notes.png");
+        std::fs::write(&junk, b"not an image").unwrap();
+        let before = s.project.assets.len();
+        assert!(s.import_image(&junk).is_err());
+        assert_eq!(s.project.assets.len(), before);
+
+        // The cover survives a save and a reload.
+        let id = s.project.starting_element.clone();
+        s.set_cover(&id, Some(first.clone()));
+        s.save();
+        let text = std::fs::read_to_string(&s.project_path).unwrap();
+        assert!(text.contains("pic.png") && text.contains(&first));
     }
 
     #[test]
